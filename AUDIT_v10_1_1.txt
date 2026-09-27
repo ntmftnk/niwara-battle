@@ -1,0 +1,74 @@
+ニワラバトル v10.1.1 反動系・PWA更新監査
+========================================
+
+[データ監査]
+MOVE_DEXで以下のフラグを持つ技を全件抽出:
+- recoilRatio
+- recoilMaxHPRatio
+- crashMaxHPRatio
+- recharge
+- selfFaintAfterDamage
+
+抽出18件:
+1. ウッドハンマー        recoilRatio=1/3
+2. ビーストダッシュ      recoilRatio=1/4
+3. てっていこうせん      recoilMaxHPRatio=1/2
+4. ワイルドボルト        recoilRatio=1/4
+5. フレアドライブ        recoilRatio=1/3
+6. ウェーブタックル      recoilRatio=1/3
+7. ハードプラント        recharge
+8. ブラストバーン        recharge
+9. ハイドロカノン        recharge
+10. すてみタックル       recoilRatio=1/3
+11. ギガインパクト       recharge
+12. てっていこせん(v6)   recoilMaxHPRatio=1/2
+13. ミストバースト       selfFaintAfterDamage / explosive
+14. はかいこうせん       recharge
+15. ボルテッカー         recoilRatio=1/3
+16. ソウルバースト       recoilRatio=1/2
+17. サンダーダイブ       crashMaxHPRatio=1/2
+18. だいばくはつ         selfFaintAfterDamage / explosive
+
+わるあがきはMOVE_DEX外のSTRUGGLE_MOVEとして別途監査。
+いのちのたま、ゴツゴツメット等は技反動とは別の間接ダメージとして既存経路を維持。
+
+[確定修正]
+- 与ダメージ比例反動: Math.floor -> round-half-up。
+- わるあがき: 最終v6 useMove経路へ反動処理を復旧、round-half-up。
+- ギガインパクト等: 反動ターンの通常交代をUI/入力双方で拒否。
+- 反動ターン: PPを減らす前にスキップ処理。
+- 強制交代: onSwitchOutでrechargeNextを解除。
+- だいばくはつ/ミストバースト: protect / immunity / miss / type effectiveness 0 の早期returnでもself-faint。
+- しめりけ: selfFaintAfterDamageを抑止した状態で不発処理するため、しめりけ時は使用者が倒れない。
+
+[端数テスト]
+- 5ダメージ × 1/3 -> 2 : OK
+- 4ダメージ × 1/3 -> 1 : OK
+- 10ダメージ × 1/4 -> 3 : OK
+- 最大HP202のわるあがき1/4 -> 51 : OK
+- 最大HP201のてっていこうせん1/2切り上げ -> 101 : OK
+- 最大HP201のサンダーダイブ1/2切り捨て -> 100 : OK
+
+[PWA更新監査]
+旧構造は「固定URL ./sw.js の通常更新」と imported app-config.js の更新検出に依存していた。
+v10.1.1では:
+- sw.jsトップレベルに updater-generation を追加して sw.js 自体のバイト列を更新。
+- pwa.js が `app-config.js?version-probe=<timestamp>` を cache:no-store で取得。
+- 配信版 != 現在版なら `sw.js?release=<deployedVersion>` を updateViaCache:none で登録。
+- これにより今後のバージョン変更を app-config.js だけで判定しつつ、Service Worker更新自体は版付きURLで強制検出可能。
+
+[静的チェック]
+- node --check: app-config.js / game-data.js / game.js / pwa.js / sw.js
+- APP_SHELL全ファイル存在確認
+- 反動比例計算にMath.floorが残っていないこと（crashMaxHPRatioは仕様どおりfloor）
+- rechargeのswitch guard存在確認
+- selfFaintAfterDamageの成功/保護/無効/外れ経路確認
+- ZIP整合性確認
+
+[外部仕様確認]
+Smogon Champions Dex:
+- Flare Blitz: target HP lostの33%、rounded half up、最低1
+- Hyper Beam: 成功時、次ターンrecharge
+- Explosion: 使用後にひんし、Dampなら実行されない
+- Supercell Slam: 失敗時最大HP1/2、rounded down
+

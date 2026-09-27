@@ -975,3 +975,32 @@ body.utility-modal-open{
 /* v10 dialog accessibility */
 [role="dialog"][tabindex="-1"]:focus { outline: none; }
 [role="dialog"] :focus-visible { outline: 3px solid currentColor; outline-offset: 2px; }
+
+/* ============================================================
+   v10.1 CPU difficulty / CPU vs CPU controls
+   ============================================================ */
+.cpu-cpu-controls{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin:0 0 12px;
+  padding:10px 12px;
+  border:1px solid var(--border,#d6dde2);
+  border-radius:12px;
+  background:var(--panel,#fff);
+}
+.cpu-cpu-status-wrap{display:flex;align-items:center;gap:10px;min-width:0}
+#cpu-cpu-status{font-size:.92rem;color:var(--muted,#66737b)}
+.cpu-cpu-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.cpu-cpu-actions label{display:flex;align-items:center;gap:6px;font-size:.88rem;white-space:nowrap}
+.cpu-cpu-actions select{min-height:40px}
+.mode-card.hidden{display:none!important}
+@media(max-width:760px){
+  .cpu-cpu-controls{display:block;padding:9px 10px;overflow:hidden}
+  .cpu-cpu-status-wrap{justify-content:space-between;margin-bottom:7px}
+  .cpu-cpu-actions{display:flex;flex-flow:row nowrap;overflow-x:auto;overflow-y:hidden;gap:6px;padding-bottom:2px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .cpu-cpu-actions::-webkit-scrollbar{display:none}
+  .cpu-cpu-actions>*{flex:0 0 auto}
+  .cpu-cpu-actions button{min-height:42px;padding:7px 10px}
+}

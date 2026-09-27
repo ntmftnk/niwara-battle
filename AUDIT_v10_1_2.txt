@@ -1,0 +1,31 @@
+ニワラバトル v10.1.2 CPU AI / CPU vs CPU 監査
+
+1. AI情報境界
+- 相手情報は v10AiPublicOpponent() の公開snapshotを使用。
+- 実測ダメージ記憶はCPU自身が受けたダメージのみ。
+- 記憶キー: 自分のbattle Pokemonオブジェクト + 相手種族ID + 実際に使用され公開された技ID。
+- 相手の nature / statPoints / 未公開item / 未公開ability / 未公開moves / 未登場選出3匹を記憶処理へ渡さない。
+
+2. 交代評価
+- v10AiIncomingThreat() に observedWorst を追加。
+- 公開済み同一技の実測値がある場合、モデル予測と実測値の大きい方を採用。
+- v10AiSwitchScore() で observedWorst >= 現在HP率 の候補へ大幅減点。
+- 「耐性はあるが実際には半分近く削られる」候補を繰り返し投げにくくした。
+
+3. ため技
+- パワフルハーブ有効時、ソーラービーム晴れ、エレクトロショット雨は即時技として扱う。
+- それ以外の2ターン技は1ターン目にダメージを出さない前提で評価。
+- 次の攻撃の worst / expected / observedWorst と現在HPを比較。
+- observedWorst >= 現在HP率 なら非常に強いAIで最大級の減点。
+
+4. CPU vs CPU
+- モード画面からCPU A/Bの自動選出後、選出画面の人間操作を挟まず v8StartBattle() へ遷移。
+- 次ターン予約を v8FinishPvpTurn() の解決完了後へ移動。
+- v10RunCpuCpuTurn() から早すぎる次ターン予約を削除。
+- 「1ターン進める」は一時停止時のみ単発動作を維持。
+
+5. 静的確認
+- app-config.js version = 10.1.2
+- 全JavaScript node --check 通過
+- HTML script参照ファイル存在確認
+- Service Worker APP_SHELL参照ファイル存在確認

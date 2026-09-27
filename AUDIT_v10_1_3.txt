@@ -1,0 +1,35 @@
+ニワラバトル v10.1.3 監査メモ
+================================
+
+対象: v10.1.2 -> v10.1.3
+
+[実測ダメージ記憶]
+OK: 割合(lastPct/avgPct/maxPct)を正本とする旧実装を削除。
+OK: useMove直前HP - 直後HPで、CPU自身が受けたHP実数を記録。
+OK: 相手側の正確HP/最大HPを記録する処理は追加していない。
+OK: 通常サンプルと急所サンプルを別配列で保持。
+OK: 各技につき各バケット直近8件へ制限。
+OK: 交代評価の致死判定は observedLikelyAmount / observedWorstAmount と candidate.hp の実数比較。
+OK: 溜め技評価の致死判定も attacker.hp との実数比較。
+
+[補正]
+OK: 攻撃ランク/防御ランクをサンプルごとに保存し、現在の公開ランクへ補正。
+OK: 晴れ/雨の炎・水補正をサンプル時と現在で補正。
+OK: 半減きのみ発動サンプルは、現在その実が消費済みなら次回リスクを増加。
+OK: タスキ/がんじょう/こらえるで頭打ちになったサンプルは、安全側上限を最大HP以上として扱う。
+OK: 乱数低下側を観測した可能性として safeMax = ceil(adjusted / 0.85) を候補に含める。
+
+[学習除外]
+OK: OHKO / fixedDamage / superFang / endeavor / finalGambit / counter / mirrorCoat / metalBurst を通常火力学習から除外。
+
+[静的チェック]
+OK: game.js node --check
+OK: app-config.js node --check
+OK: pwa.js node --check
+OK: sw.js node --check
+OK: active source filesに 10.1.2 のハードコードなし
+OK: lastPct / avgPct / maxPct 旧フィールドなし
+
+注意:
+この実行環境では実ブラウザ対戦を自動操作するChromiumテストが安定しないため、
+実戦でのAI判断はGitHub Pages反映後のCPU対CPUログでも確認してください。

@@ -1072,6 +1072,9 @@ function onSwitchOut(pokemon) {
   resetStages(pokemon);
   if (pokemon.status === "toxic") pokemon.toxicCounter = 1;
   pokemon.choiceLock = null;
+  // 反動による「次ターン行動不能」は場を離れると解除される揮発状態。
+  // 通常交代は反動ターン中に選べないが、ほえる等で強制交代された場合は持ち越さない。
+  pokemon.rechargeNext = false;
   pokemon.protectThisTurn = false;
   pokemon.protectChain = 0;
   pokemon.seeded = false;
@@ -1589,7 +1592,7 @@ function useMove(attacker, defender, originalMove) {
   }
 
   if (move.recoilRatio && dealt > 0 && attacker.hp > 0) {
-    const recoil = Math.max(1, Math.floor(dealt * move.recoilRatio));
+    const recoil = Math.max(1, v10RoundHalfUp(dealt * move.recoilRatio));
     attacker.hp = Math.max(0, attacker.hp - recoil);
     logs.push(`${attacker.name}は 反動で ${recoil} ダメージ！`);
   }
@@ -1599,7 +1602,7 @@ function useMove(attacker, defender, originalMove) {
     logs.push(`${attacker.name}は 反動で ${recoil} ダメージ！`);
   }
   if (move.struggle && attacker.hp > 0) {
-    const recoil = Math.max(1, Math.floor(attacker.maxHP / 4));
+    const recoil = Math.max(1, v10RoundHalfUp(attacker.maxHP / 4));
     attacker.hp = Math.max(0, attacker.hp - recoil);
     logs.push(`${attacker.name}は わるあがきの反動で ${recoil} ダメージ！`);
   }
@@ -1933,13 +1936,16 @@ function renderMoves() {
 
 function renderSwitchButtons() {
   switchContainer.innerHTML = "";
-  const trapped = !awaitingPlayerSwitch && isTrappedByOpponent(getPlayerPokemon(), getEnemyPokemon());
+  const active = getPlayerPokemon();
+  const trapped = !awaitingPlayerSwitch && isTrappedByOpponent(active, getEnemyPokemon());
+  const recharging = !awaitingPlayerSwitch && Boolean(active?.rechargeNext);
   playerTeam.forEach((pokemon, index) => {
     const button = document.createElement("button");
     button.className = "switch-button";
     button.textContent = `${pokemon.name}#${pokemon.rosterIndex + 1}　${pokemon.hp}/${pokemon.maxHP}`;
-    button.disabled = battleOver || pokemon.hp <= 0 || index === playerActiveIndex || trapped;
-    if (trapped && index !== playerActiveIndex) button.title = "かげふみで交代できません";
+    button.disabled = battleOver || pokemon.hp <= 0 || index === playerActiveIndex || trapped || recharging;
+    if (recharging && index !== playerActiveIndex) button.title = "反動で動けないターンは交代できません";
+    else if (trapped && index !== playerActiveIndex) button.title = "かげふみで交代できません";
     button.addEventListener("click", () => playerSwitch(index));
     switchContainer.appendChild(button);
   });
@@ -1970,6 +1976,11 @@ function playerSwitch(newIndex) {
   if (battleOver) return;
   const newPokemon = playerTeam[newIndex];
   if (!newPokemon || newPokemon.hp <= 0 || newIndex === playerActiveIndex) return;
+
+  if (!awaitingPlayerSwitch && getPlayerPokemon()?.rechargeNext) {
+    addLog(`${getPlayerPokemon().name}は 反動で交代できない！`, "log-system");
+    return;
+  }
 
   if (!awaitingPlayerSwitch && isTrappedByOpponent(getPlayerPokemon(), getEnemyPokemon())) {
     addLog(`${getPlayerPokemon().name}は かげふみで交代できない！`, "log-system");
@@ -2292,9 +2303,11 @@ function v6GetMoveDescription(move) {
     parts.push(`相手の能力変化：${list.join(" / ")}`);
   }
   if (move.secondaryStatus) parts.push(`${move.secondaryStatus.chance}%で${STATUS_NAMES[move.secondaryStatus.status] || move.secondaryStatus.status}`);
-  if (move.recoilRatio) parts.push(`与えたダメージの約${Math.round(move.recoilRatio * 100)}%を反動で受ける`);
+  if (move.recoilRatio) parts.push(`相手が失ったHPの${move.recoilRatio === 1/3 ? "1/3" : move.recoilRatio === 1/4 ? "1/4" : move.recoilRatio === 1/2 ? "1/2" : Math.round(move.recoilRatio * 100) + "%"}を四捨五入（0.5切り上げ）して反動で受ける`);
   if (move.recoilMaxHPRatio) parts.push(`最大HPの${move.recoilMaxHPRatio === 0.5 ? "1/2" : Math.round(move.recoilMaxHPRatio * 100) + "%"}を反動で失う`);
-  if (move.recharge) parts.push("使用後、次のターンは反動で行動できない");
+  if (move.recharge) parts.push("攻撃が成功すると、次のターンは反動で技も通常交代も選べない");
+  if (move.crashMaxHPRatio) parts.push(`攻撃失敗時、最大HPの${move.crashMaxHPRatio === 0.5 ? "1/2" : Math.round(move.crashMaxHPRatio * 100) + "%"}（端数切り捨て）のダメージを受ける`);
+  if (move.selfFaintAfterDamage) parts.push("使用後は攻撃を防がれたり無効化された場合でもひんしになる（しめりけで不発の場合を除く）");
   if (move.drainRatio) parts.push(`与えたダメージの${Math.round(move.drainRatio * 100)}%を回復する`);
   if (move.healRatio) parts.push(`最大HPの${Math.round(move.healRatio * 100)}%を回復する`);
   if (move.weather) parts.push(`${WEATHER_NAMES[move.weather]}にする`);
@@ -2974,6 +2987,32 @@ function v62ApplyGuaranteedStatChanges(attacker, defender, move, sheerForceActiv
   }
 }
 
+// Champions系の割合反動は「0.5を切り上げる四捨五入」。
+// 例: 5ダメージの1/3反動は2、202最大HPのわるあがき1/4は51。
+function v10RoundHalfUp(value) {
+  return Math.floor(Number(value) + 0.5);
+}
+
+function v10ApplyDamageRecoil(attacker, move, damageDealt, logs) {
+  if (!move?.recoilRatio || damageDealt <= 0 || attacker.hp <= 0) return;
+  const recoil = Math.max(1, v10RoundHalfUp(damageDealt * move.recoilRatio));
+  attacker.hp = Math.max(0, attacker.hp - recoil);
+  logs.push(`${attacker.name}は 反動で ${recoil} ダメージ！`);
+}
+
+function v10ApplyStruggleRecoil(attacker, logs) {
+  if (!attacker || attacker.hp <= 0) return;
+  const recoil = Math.max(1, v10RoundHalfUp(attacker.maxHP / 4));
+  attacker.hp = Math.max(0, attacker.hp - recoil);
+  logs.push(`${attacker.name}は わるあがきの反動で ${recoil} ダメージ！`);
+}
+
+function v10ApplySelfFaintAfterUse(attacker, move, logs) {
+  if (!move?.selfFaintAfterDamage || !attacker || attacker.hp <= 0) return;
+  attacker.hp = 0;
+  logs.push(`${attacker.name}は 力尽きた！`);
+}
+
 function v62ApplyMaxHPRecoil(attacker, move, logs) {
   if (!move?.recoilMaxHPRatio || attacker.hp <= 0) return;
   // てっていこうせん系は最大HP基準・端数切り上げ。
@@ -2994,6 +3033,13 @@ useMove = function(attacker, defender, originalMove) {
   const logs = [];
   attacker.hasActedThisTurn = true;
   attacker.lastMoveFailed = false;
+
+  // ギガインパクト等の反動ターンは「技を選んだ扱い」ではなく、ターンそのものを失う。
+  // PPを減らさず、状態をここで1回だけ消費する。通常交代もUI/入力側で禁止する。
+  if (attacker.rechargeNext) {
+    attacker.rechargeNext = false;
+    return [`${attacker.name}は 反動で 動けない！`];
+  }
 
   if (!move.struggle) {
     if (move.pp <= 0) return [`${move.name}は PPが ない！`];
@@ -3227,7 +3273,7 @@ useMove = function(attacker, defender, originalMove) {
   }
 
   // 攻撃技
-  if (defender.protectThisTurn && !move.breakProtect) { logs.push(`${defender.name}は 攻撃を防いだ！`); v62ApplyMaxHPRecoil(attacker, move, logs); attacker.lastMoveFailed = true; return logs; }
+  if (defender.protectThisTurn && !move.breakProtect) { logs.push(`${defender.name}は 攻撃を防いだ！`); v62ApplyMaxHPRecoil(attacker, move, logs); v10ApplySelfFaintAfterUse(attacker, move, logs); attacker.lastMoveFailed = true; return logs; }
   if (move.breakProtect && defender.protectThisTurn) { defender.protectThisTurn = false; logs.push(`${defender.name}の まもるを 打ち破った！`); }
   if (v6GetSideState(defender.side).quickGuard && move.priority > 0) { logs.push("ファストガードで 先制技を防いだ！"); attacker.lastMoveFailed = true; return logs; }
   if (v6EnsureFieldState().terrain.type === "psychic" && move.priority > 0 && v6IsGrounded(defender)) { logs.push("サイコフィールドで 先制技を防いだ！"); attacker.lastMoveFailed = true; return logs; }
@@ -3235,8 +3281,8 @@ useMove = function(attacker, defender, originalMove) {
   if (move.requiresTerrain && !v6EnsureFieldState().terrain.type) { logs.push("しかし フィールドがないので失敗した！"); attacker.lastMoveFailed = true; return logs; }
 
   const immunity = getImmunityResult(attacker, defender, move);
-  if (immunity.immune) { logs.push(...applyImmunityResult(defender, immunity)); v62ApplyMaxHPRecoil(attacker, move, logs); attacker.lastMoveFailed = true; return logs; }
-  if (!checkAccuracy(move, attacker, defender)) { logs.push("しかし こうげきは はずれた！"); v62ApplyMaxHPRecoil(attacker, move, logs); attacker.lastMoveFailed = true; attacker.furyCutterCount = 0; attacker.rolloutCount = 0; return logs; }
+  if (immunity.immune) { logs.push(...applyImmunityResult(defender, immunity)); v62ApplyMaxHPRecoil(attacker, move, logs); v10ApplySelfFaintAfterUse(attacker, move, logs); attacker.lastMoveFailed = true; return logs; }
+  if (!checkAccuracy(move, attacker, defender)) { logs.push("しかし こうげきは はずれた！"); v62ApplyMaxHPRecoil(attacker, move, logs); v10ApplySelfFaintAfterUse(attacker, move, logs); attacker.lastMoveFailed = true; attacker.furyCutterCount = 0; attacker.rolloutCount = 0; return logs; }
 
   if (move.ohko) {
     if (defender.types.includes("こおり") && move.name === "ぜったいれいど") { logs.push(`${defender.name}には 効かない！`); return logs; }
@@ -3274,7 +3320,7 @@ useMove = function(attacker, defender, originalMove) {
   let anyCritical = false;
   let effectiveness = getTypeEffectivenessV5(attacker, defender, move);
 
-  if (effectiveness === 0) { logs.push(`${defender.name}には こうかがないようだ……`); v62ApplyMaxHPRecoil(attacker, move, logs); attacker.lastMoveFailed = true; return logs; }
+  if (effectiveness === 0) { logs.push(`${defender.name}には こうかがないようだ……`); v62ApplyMaxHPRecoil(attacker, move, logs); v10ApplySelfFaintAfterUse(attacker, move, logs); attacker.lastMoveFailed = true; return logs; }
 
   for (let i = 0; i < hits; i++) {
     if (defender.hp <= 0) break;
@@ -3350,9 +3396,10 @@ useMove = function(attacker, defender, originalMove) {
   if (move.drainRatio && totalDealt > 0 && attacker.hp > 0 && canRecover(attacker)) {
     const before = attacker.hp; attacker.hp = Math.min(attacker.maxHP, attacker.hp + Math.max(1, Math.floor(totalDealt * move.drainRatio))); logs.push(`${attacker.name}は ${attacker.hp - before} HP 吸収した！`);
   }
-  if (move.recoilRatio && totalDealt > 0 && attacker.hp > 0) { const recoil = Math.max(1, Math.floor(totalDealt * move.recoilRatio)); attacker.hp = Math.max(0, attacker.hp - recoil); logs.push(`${attacker.name}は 反動で ${recoil} ダメージ！`); }
+  v10ApplyDamageRecoil(attacker, move, totalDealt, logs);
   v62ApplyMaxHPRecoil(attacker, move, logs);
-  if (move.selfFaintAfterDamage && attacker.hp > 0) { attacker.hp = 0; logs.push(`${attacker.name}は 力尽きた！`); }
+  if (move.struggle) v10ApplyStruggleRecoil(attacker, logs);
+  v10ApplySelfFaintAfterUse(attacker, move, logs);
   if (move.recharge && attacker.hp > 0) attacker.rechargeNext = true;
   if (move.knockOff && v6ItemIsActive(defender) && defender.item.id !== "none" && defender.hp > 0) { defender.itemConsumed = true; logs.push(`${defender.name}の ${defender.item.name}を はたき落とした！`); }
   if (move.bugBite && v6ItemIsActive(defender) && /berry|オボン|ラム|カゴ/.test(defender.item.id + defender.item.name)) { defender.itemConsumed = true; logs.push(`${attacker.name}は ${defender.name}の ${defender.item.name}を 食べた！`); }
@@ -4519,7 +4566,8 @@ useMove = function(attacker, defender, originalMove) {
   if (move.explosive) {
     const dampHolder = [attacker, defender].find(p => p?.ability?.id === "damp");
     if (dampHolder) {
-      return v7RunAsBlocked(attacker, defender, move, `${dampHolder.name}の ${dampHolder.ability.name}で ${move.name}は 不発になった！`);
+      const dampBlockedMove = move.selfFaintAfterDamage ? { ...move, selfFaintAfterDamage: false } : move;
+      return v7RunAsBlocked(attacker, defender, dampBlockedMove, `${dampHolder.name}の ${dampHolder.ability.name}で ${move.name}は 不発になった！`);
     }
   }
 
@@ -5449,6 +5497,7 @@ scoreMove = function(attacker, defender, move) {
     v10CpuDifficultyACard?.classList.toggle("hidden", !cpuCpu);
     v10CpuDifficultyBCard?.classList.toggle("hidden", pvp);
     if (v10CpuDifficultyBLabel) v10CpuDifficultyBLabel.textContent = cpuCpu ? "CPU Bの強さ" : "CPUの強さ";
+    if (v8ModeContinueButton) v8ModeContinueButton.textContent = cpuCpu ? "CPU同士の対戦を開始" : "選出へ";
     if (v10ModeHelpNote) {
       v10ModeHelpNote.textContent = pvp
         ? "2人対戦では、行動選択のたびに画面を隠す「端末を渡す」画面を挟みます。"
@@ -5680,6 +5729,100 @@ scoreMove = function(attacker, defender, move) {
   let v10CpuDifficultyA="very-strong";
   let v10CpuDifficultyB="very-strong";
 
+  // CPUが戦闘中に自分で観測した「実ダメージ」の記憶。
+  // 正本は割合ではなく、CPU自身のポケモンが実際に失ったHP実数。
+  // WeakMapのキーは受けた自分自身のbattle Pokemonオブジェクトで、
+  // 相手種族 + 公開済み使用技ごとに通常/急所サンプルを分離して保持する。
+  // 相手の非公開set情報は一切保存しない。
+  let v10AiDamageMemory={player:new WeakMap(),enemy:new WeakMap()};
+  function v10AiResetBattleMemory(){v10AiDamageMemory={player:new WeakMap(),enemy:new WeakMap()};}
+  function v10AiMemoryKey(attacker,move){return `${attacker?.id||"?"}|${move?.id||"?"}`;}
+  function v10AiCanLearnDirectDamage(move){
+    if(!move||move.category==="status")return false;
+    // 相手の現在HPや直前被弾量などで威力そのものが変わる技は、通常の火力学習へ混ぜない。
+    if(move.ohko||move.fixedDamage||move.superFang||move.endeavor||move.finalGambit||move.counter||move.mirrorCoat||move.metalBurst)return false;
+    return true;
+  }
+  function v10AiRecordObservedDamage(attacker,defender,move,logs,hadSubstitute=false,hpBefore=null){
+    const side=defender?.side;
+    if(!attacker||!defender||!move||!side||!v10SideIsCpu(side)||hadSubstitute||!v10AiCanLearnDirectDamage(move))return;
+    const before=Number(hpBefore);
+    const amount=Number.isFinite(before)?Math.max(0,before-Number(defender.hp||0)):0;
+    if(!(amount>0)||!(defender.maxHP>0))return;
+    let perPokemon=v10AiDamageMemory[side].get(defender);
+    if(!perPokemon){perPokemon=new Map();v10AiDamageMemory[side].set(defender,perPokemon);}
+    const key=v10AiMemoryKey(attacker,move);
+    const prev=perPokemon.get(key)||{normal:[],critical:[]};
+    const lines=Array.isArray(logs)?logs.map(String):[];
+    const critical=lines.some(x=>x.includes("急所に当たった"));
+    const resistBerry=lines.some(x=>x.includes("ダメージを弱めた"));
+    const survivalCap=lines.some(x=>x.includes("きあいのタスキで耐えた")||x.includes("がんじょうで耐えた")) || Boolean(defender.endureThisTurn&&defender.hp===1);
+    const atkStat=move.category==="physical"?"attack":"specialAttack";
+    const defStat=move.category==="physical"?"defense":"specialDefense";
+    const sample={
+      amount,turn:turnNumber,
+      attackerStage:attacker.stages?.[atkStat]||0,
+      defenderStage:defender.stages?.[defStat]||0,
+      category:move.category,moveType:move.type,
+      weather:weather.type||null,
+      resistBerry,survivalCap,
+      hpBefore:before,maxHP:defender.maxHP
+    };
+    const bucket=critical?prev.critical:prev.normal;
+    bucket.push(sample);
+    // 長期戦でも記憶が無制限に増えないよう、各技につき直近8サンプルを保持。
+    if(bucket.length>8)bucket.splice(0,bucket.length-8);
+    perPokemon.set(key,prev);
+  }
+  function v10AiWeatherMoveMultiplier(moveType,weatherType){
+    if(weatherType==="rain"){if(moveType==="みず")return 1.5;if(moveType==="ほのお")return 0.5;}
+    if(weatherType==="sun"){if(moveType==="ほのお")return 1.5;if(moveType==="みず")return 0.5;}
+    return 1;
+  }
+  function v10AiObservedDamageEstimate(candidate,pub,move){
+    const empty={samples:0,lastAmount:0,minAmount:0,maxAmount:0,avgAmount:0,likelyAmount:0,safeMaxAmount:0,criticalSamples:0,criticalMaxAmount:0};
+    const mem=v10AiDamageMemory[candidate?.side]?.get(candidate);
+    const obs=mem?.get(`${pub?.speciesId||"?"}|${move?.id||"?"}`);
+    if(!obs)return empty;
+    const atkStat=move.category==="physical"?"attack":"specialAttack";
+    const defStat=move.category==="physical"?"defense":"specialDefense";
+    const currentAtk=pub?.stages?.[atkStat]||0;
+    const currentDef=candidate?.stages?.[defStat]||0;
+    const currentWeather=v10AiWeatherMoveMultiplier(move.type,weather.type||null);
+    const adjustSample=(sample,forUpper=false)=>{
+      let ratio=getStageMultiplier(currentAtk)/getStageMultiplier(sample.attackerStage||0);
+      ratio*=getStageMultiplier(sample.defenderStage||0)/getStageMultiplier(currentDef);
+      const oldWeather=v10AiWeatherMoveMultiplier(move.type,sample.weather||null);
+      if(oldWeather>0)ratio*=currentWeather/oldWeather;
+      // 半減きのみを使って受けた実測は、その実が消費済みの次回には概ね2倍を警戒する。
+      if(sample.resistBerry&&candidate.itemConsumed)ratio*=2;
+      ratio=clamp(ratio,0.25,4);
+      let value=Math.max(1,Math.round(sample.amount*ratio));
+      if(forUpper){
+        // 通常ダメージ乱数は最低側を引いた可能性を残し、実測から上限候補を逆算する。
+        value=Math.max(value,Math.ceil(value/0.85));
+        // タスキ/がんじょう/こらえるでHP減少量が頭打ちだった場合、少なくとも致死圏として扱う。
+        if(sample.survivalCap)value=Math.max(value,candidate.maxHP);
+      }
+      return Math.min(Math.max(1,value),Math.max(candidate.maxHP*4,1));
+    };
+    const normal=(obs.normal||[]).map(sample=>({sample,value:adjustSample(sample,false),upper:adjustSample(sample,true)}));
+    const crit=(obs.critical||[]).map(sample=>adjustSample(sample,false));
+    if(!normal.length){
+      return {...empty,criticalSamples:crit.length,criticalMaxAmount:crit.length?Math.max(...crit):0};
+    }
+    const vals=normal.map(x=>x.value),last=normal[normal.length-1].value;
+    const min=Math.min(...vals),max=Math.max(...vals),avg=vals.reduce((a,b)=>a+b,0)/vals.length;
+    // 直近・平均・最大実測を主軸にする。safeMaxは乱数上振れまで含めた安全側の見積り。
+    const likely=Math.max(last,avg,max*0.96);
+    const safeMax=Math.max(...normal.map(x=>x.upper),Math.ceil(likely));
+    return {
+      samples:normal.length,lastAmount:last,minAmount:min,maxAmount:max,avgAmount:avg,
+      likelyAmount:Math.ceil(likely),safeMaxAmount:safeMax,
+      criticalSamples:crit.length,criticalMaxAmount:crit.length?Math.max(...crit):0
+    };
+  }
+
   function v10AiLevel(difficulty){ return V10_AI_LEVELS[difficulty] || V10_AI_LEVELS.strong; }
   function v10DifficultyForSide(side){ return side==="player" ? v10CpuDifficultyA : v10CpuDifficultyB; }
   function v10SideIsCpu(side){
@@ -5851,22 +5994,32 @@ scoreMove = function(attacker, defender, move) {
     revealed.forEach(add);candidates.slice(0,limit).forEach(add);return out;
   }
   function v10AiIncomingThreat(candidate,pub,difficulty){
-    if(!candidate||!pub)return {expected:0,worst:0,physical:0,special:0};
+    if(!candidate||!pub)return {expected:0,worst:0,observedWorst:0,observedLikelyAmount:0,observedWorstAmount:0,physical:0,special:0};
     const moves=v10AiPossibleOpponentMoves(pub,difficulty),revealed=new Set(pub.revealedMoves);
-    const values=[];let phys=0,spec=0;
+    const values=[];let phys=0,spec=0,observedWorst=0,observedLikelyAmount=0,observedWorstAmount=0;
     for(const move of moves){
-      let best=0;
+      let modeled=0;
       for(const attacker of v10AiBeliefAttackers(pub,move,difficulty)){
-        try{const r=calculateDamage(attacker,candidate,move,{randomFactor:0.925,forceCritical:false});best=Math.max(best,(Number(r?.damage||0)/Math.max(1,candidate.maxHP))*((move.accuracy??100)/100));}catch(_){}
+        try{const r=calculateDamage(attacker,candidate,move,{randomFactor:0.925,forceCritical:false});modeled=Math.max(modeled,(Number(r?.damage||0)/Math.max(1,candidate.maxHP))*((move.accuracy??100)/100));}catch(_){}
       }
+      const obs=revealed.has(move.id)?v10AiObservedDamageEstimate(candidate,pub,move):null;
+      const observedLikely=obs?.likelyAmount?obs.likelyAmount/Math.max(1,candidate.maxHP):0;
+      const observedSafe=obs?.safeMaxAmount?obs.safeMaxAmount/Math.max(1,candidate.maxHP):0;
+      observedWorst=Math.max(observedWorst,observedSafe);
+      observedLikelyAmount=Math.max(observedLikelyAmount,obs?.likelyAmount||0);
+      observedWorstAmount=Math.max(observedWorstAmount,obs?.safeMaxAmount||0);
+      // 実測した同一相手・同一技がある場合は、机上のタイプ相性より実測実数を優先する。
+      const best=Math.max(modeled,observedLikely,observedSafe*0.93);
       const certainty=revealed.has(move.id)?1:(difficulty==="normal"?0.38:difficulty==="strong"?0.58:0.72);
       const weighted=best*certainty;values.push(weighted);
       if(move.category==="physical")phys=Math.max(phys,weighted);else spec=Math.max(spec,weighted);
     }
     values.sort((a,b)=>b-a);
-    const worst=values[0]||0,expected=values.slice(0,Math.min(3,values.length)).reduce((a,b)=>a+b,0)/Math.max(1,Math.min(3,values.length));
-    return {expected,worst,physical:phys,special:spec};
+    const worst=Math.max(values[0]||0,observedWorst);
+    const expected=Math.max(observedWorst*0.92,values.slice(0,Math.min(3,values.length)).reduce((a,b)=>a+b,0)/Math.max(1,Math.min(3,values.length)));
+    return {expected,worst,observedWorst,observedLikelyAmount,observedWorstAmount,physical:phys,special:spec};
   }
+
   function v10AiApproxSpeed(pub,difficulty){
     const sp=SPECIES_DEX[pub.speciesId];
     const set=v10AiBaseSet(pub.speciesId,pub.abilityId||sp.abilities[0].id,pub.itemId||"none","まじめ",{hp:0,attack:0,defense:0,specialAttack:0,specialDefense:0,speed:difficulty==="normal"?0:16});
@@ -5887,14 +6040,42 @@ scoreMove = function(attacker, defender, move) {
     sample.forEach(id=>{const mult=getTypeEffectiveness(move.type,SPECIES_DEX[id].types);if(mult===0)immune++;else if(mult<1)resisted++;else if(mult>1)superEff++;});
     return superEff*4-immune*13-resisted*4;
   }
+  function v10AiRequiresChargeTurn(attacker,move){
+    if(!move||(attacker?.chargingMoveId===move.id))return false;
+    if(!(move.twoTurn||move.twoTurnWeather))return false;
+    const weatherImmediate=(move.twoTurn==="solarBeam"&&weather.type==="sun")||(move.twoTurn==="electroShot"&&weather.type==="rain");
+    const herb=Boolean(v6ItemIsActive(attacker)&&attacker.item?.id==="power-herb");
+    return !weatherImmediate&&!herb;
+  }
   function v10AiScoreMoveFor(attacker,side,pub,move,difficulty){
     const eff=getEffectiveMove(attacker,move);if(!eff)return -9999;
     const hp=attacker.hp/Math.max(1,attacker.maxHP),level=v10AiLevel(difficulty);
     if(eff.category!=="status"){
       const info=v10AiExpectedDamageInfo(attacker,pub,move,difficulty),visible=Math.max(.01,pub.hpPercent/100);
-      let score=info.mean*205 + (info.accuracy-80)*0.25 + v10AiSwitchCoverageAdjustment(side,eff,difficulty);
-      if(info.min>=visible)score+=155;else if(info.mean>=visible)score+=105;else if(info.max>=visible)score+=42;
-      if((eff.priority||0)>0){score+=18;if(info.mean>=visible)score+=48;}
+      const needsCharge=v10AiRequiresChargeTurn(attacker,eff);
+      let score=info.mean*(needsCharge?82:205) + (info.accuracy-80)*0.25 + v10AiSwitchCoverageAdjustment(side,eff,difficulty);
+      // 即時攻撃だけを「このターンのKO」として評価する。ため技は次ターンまで生存できるかを先に評価。
+      if(!needsCharge){
+        if(info.min>=visible)score+=155;else if(info.mean>=visible)score+=105;else if(info.max>=visible)score+=42;
+        if((eff.priority||0)>0){score+=18;if(info.mean>=visible)score+=48;}
+      }else{
+        const threat=v10AiIncomingThreat(attacker,pub,difficulty);
+        const incoming=Math.max(threat.worst||0,threat.observedWorst||0);
+        const expected=Math.max(threat.expected||0,threat.observedWorst||0);
+        let boostValue=0;
+        if(eff.chargeBoost)for(const [stat,n] of Object.entries(eff.chargeBoost))boostValue+=Math.max(0,Math.min(n,6-(attacker.stages?.[stat]||0)))*16;
+        score+=boostValue;
+        // 「前回77%受けた・残り23%」のようなケースでは、タイプ相性より実測を優先してほぼ選ばない。
+        if((threat.observedLikelyAmount||0)>=attacker.hp)score-=difficulty==="very-strong"?390:difficulty==="strong"?300:195;
+        else if((threat.observedWorstAmount||0)>=attacker.hp)score-=difficulty==="very-strong"?315:difficulty==="strong"?245:155;
+        else if(incoming>=hp)score-=difficulty==="very-strong"?285:difficulty==="strong"?220:145;
+        else if(expected>=hp)score-=190;
+        else{
+          const margin=hp-incoming;
+          if(margin<.12)score-=115;else if(margin<.25)score-=62;
+          if(incoming<.22)score+=24;
+        }
+      }
       if(eff.pivot){const threat=v10AiIncomingThreat(attacker,pub,difficulty);score+=14+Math.max(0,threat.expected-.45)*55;}
       if(eff.drainRatio&&hp<.72)score+=26;
       if((eff.recoilRatio||eff.recoilMaxHPRatio)&&hp<.35)score-=55;
@@ -5936,6 +6117,13 @@ scoreMove = function(attacker, defender, move) {
     for(const move of getSelectableMoves(candidate)){offense=Math.max(offense,v10AiScoreMoveFor(candidate,side,pub,move,difficulty));}
     if(!Number.isFinite(offense))offense=0;
     let score=offense*.72 + hp*42 - threat.expected*115 - threat.worst*55;
+    if(threat.observedWorst>0){
+      score-=threat.observedWorst*(difficulty==="very-strong"?150:difficulty==="strong"?105:55);
+      // KO可否は割合ではなく、CPU自身が覚えている実ダメージと現在HPの実数で直接比較する。
+      if((threat.observedLikelyAmount||0)>=candidate.hp)score-=difficulty==="very-strong"?370:difficulty==="strong"?270:135;
+      else if((threat.observedWorstAmount||0)>=candidate.hp)score-=difficulty==="very-strong"?245:difficulty==="strong"?170:90;
+      else if((threat.observedWorstAmount||0)>=candidate.hp*.82)score-=difficulty==="very-strong"?145:difficulty==="strong"?95:45;
+    }
     if(getModifiedStat(candidate,"speed")>v10AiApproxSpeed(pub,difficulty))score+=12;
     const ss=v6GetSideState(side);if(ss.stealthRock)score-=getTypeEffectiveness("いわ",candidate.types)*8;if((ss.spikes||0)>0&&!v6IsGrounded(candidate))score+=0;else score-=(ss.spikes||0)*5;
     if(candidate.ability?.id==="regenerator"&&candidate.hp<candidate.maxHP*.7)score+=8;
@@ -6052,6 +6240,10 @@ scoreMove = function(attacker, defender, move) {
       v8SelectionA=v10AiChooseSelection(v8RosterA,v8RosterB,v10CpuDifficultyA);
       v8SelectionB=v10AiChooseSelection(v8RosterB,v8RosterA,v10CpuDifficultyB);
       v8SelectionView="spectator";
+      // CPU vs CPUは構築→6→3選出→先発決定→対戦開始まで完全自動。
+      // プレイヤーに選出確定ボタンを要求しない。
+      v8StartBattle();
+      return;
     }
     v8RenderSelection(); showScreen("selection");
   }
@@ -6306,9 +6498,13 @@ scoreMove = function(attacker, defender, move) {
   useMove = function(attacker, defender, move) {
     const prev=v915MoveExecutionContext;
     const ctx={attacker,defender,move};
+    const hadSubstitute=Boolean(defender?.substituteHP>0);
+    const hpBefore=Number(defender?.hp??0);
     v915MoveExecutionContext=ctx;
     let logs;
     try{logs=V8_useMoveKnowledge(attacker,defender,move);}finally{v915MoveExecutionContext=prev;}
+    // CPU側は、自分が実際に失ったHP実数だけを学習する。相手側の正確HPは参照しない。
+    v10AiRecordObservedDamage(attacker,defender,move,logs,hadSubstitute,hpBefore);
     if(Array.isArray(logs))v915BatchContexts.set(logs,ctx);
     const name=move?.name || MOVE_DEX[move?.id]?.name;
     if (name && logs?.some?.(x=>String(x).includes(`${attacker.name}の ${name}`))) v8MarkMove(attacker,move.id);
@@ -6801,6 +6997,7 @@ scoreMove = function(attacker, defender, move) {
   }
   function v8SelectSwitch(side,index){
     if(side!==v8ActionPhase||battleOver||awaitingPlayerSwitch)return; const p=v8GetTeam(side)[index]; if(!p||p.hp<=0||index===v8GetIndex(side))return;
+    if(v8Active(side)?.rechargeNext)return;
     if(isTrappedByOpponent(v8Active(side),v8Active(v8Other(side))))return; v8LockAction(side,{type:"switch",index});
   }
   let v8PivotRequestedSide=null;
@@ -6858,7 +7055,10 @@ scoreMove = function(attacker, defender, move) {
   function v8CleanupResolvedPvp(){v8PendingActions={player:null,enemy:null};v8PivotRequestedSide=null;v8ResolvingTurn=false;window.__v6SelectedMoves=null;}
   function v8FinishPvpTurn(){
     endTurn();turnNumber++;resolveFaints();renderAll();v8CleanupResolvedPvp();
-    if(!battleOver&&!awaitingPlayerSwitch&&!v8ReplacementState)v8PrepareNextPvpTurn();
+    if(!battleOver&&!awaitingPlayerSwitch&&!v8ReplacementState){
+      if(v8BattleMode==="cpu-cpu")v10ScheduleCpuCpuTurn();
+      else v8PrepareNextPvpTurn();
+    }
   }
   function v8RunMove(side,move){
     const attacker=v8Active(side),defender=v8Active(v8Other(side));
@@ -6950,7 +7150,9 @@ scoreMove = function(attacker, defender, move) {
     v8ResolvePvpTurn();
     v8ViewMode=v8ViewMode||"spectator";
     renderAll();
-    if(!stepOnly&&!battleOver&&!v10CpuCpuPaused)v10ScheduleCpuCpuTurn();
+    // 次ターン予約は v8FinishPvpTurn() で「実際にターン処理が完了した後」に行う。
+    // stepOnly時は一時停止扱いにして自動予約を抑止する。
+    if(stepOnly)v10CpuCpuPaused=true;
   }
   function v10CpuCpuReplacement(side){
     return v10AiChooseSwitchIndex(side,v10DifficultyForSide(side),{replacement:true});
@@ -7010,6 +7212,11 @@ scoreMove = function(attacker, defender, move) {
     if(v8BattleMode==="cpu-cpu"){v8CommandOwnerText.textContent="CPUが自動で行動を選択";const n=document.createElement("div");n.className="locked-action-note";n.textContent="AIは各自が知り得る公開情報だけで判断しています。上のCPU vs CPU操作から一時停止・1ターン進行ができます。";moveContainer.appendChild(n);return;}
     if(v8BattleMode!=="pvp"){
       const p=getPlayerPokemon(),foe=getEnemyPokemon();v8CommandOwnerText.textContent="たたかう（プレイヤーA）";
+      if(p?.rechargeNext){
+        const n=document.createElement("div");n.className="locked-action-note";n.textContent=`${p.name}は反動でこのターン行動できません。`;moveContainer.appendChild(n);
+        setTimeout(()=>{if(!battleOver&&!awaitingPlayerSwitch&&getPlayerPokemon()===p&&p.rechargeNext){processMoveTurn({...STRUGGLE_MOVE,id:"v10-recharge-skip",name:"反動",struggle:true});}},30);
+        return;
+      }
       const usable=getSelectableMoves(p),list=usable.length? (p.chargingMoveId||p.rampageMoveId?usable:p.moves) : [{...STRUGGLE_MOVE}];
       list.forEach(move=>{const eff=getEffectiveMove(p,move),b=document.createElement("button");b.className="move-button";const effect=eff.category==="status"?"変化技":getEffectivenessText(getTypeEffectivenessV5(p,foe,eff));b.innerHTML=`<span class="move-name">${eff.name}</span><span class="move-info">${eff.type} / ${getCategoryText(eff.category)}<br>威力 ${eff.power??"-"}　命中 ${eff.accuracy??"-"}</span><span class="pp-line">${eff.struggle?"PP ∞":`PP ${move.pp}/${move.maxPP}`}</span><span class="effectiveness">${effect}</span>`;b.disabled=!eff.struggle&&(move.pp<=0||!isMoveAllowedByItem(p,move));b.addEventListener("click",()=>processMoveTurn(move));moveContainer.appendChild(b);});
       return;
@@ -7023,8 +7230,10 @@ scoreMove = function(attacker, defender, move) {
     switchContainer.innerHTML="";
     if(v8BattleMode==="cpu-cpu"){const n=document.createElement("div");n.className="locked-action-note";n.textContent="交代・ひんし時の次ポケモン・交代技の交代先もCPUが自動判断します。";switchContainer.appendChild(n);return;}
     let side=v8BattleMode==="pvp"?v8ControlSide():"player";const team=v8GetTeam(side),active=v8GetIndex(side);const pivot=Boolean(v8PivotChoicePending);const replacement=Boolean(v8ReplacementState);
-    const trapped=!replacement&&!pivot&&isTrappedByOpponent(v8Active(side),v8Active(v8Other(side)));
-    team.forEach((p,i)=>{const b=document.createElement("button");b.className="switch-button";b.textContent=`${p.name}　${p.hp}/${p.maxHP}`;b.disabled=p.hp<=0||i===active||(trapped&&!pivot)||battleOver;b.addEventListener("click",()=>{if(replacement)v8ChooseReplacement(side,i);else if(pivot)v8SelectPivot(i);else if(v8BattleMode==="pvp")v8SelectSwitch(side,i);else playerSwitch(i);});switchContainer.appendChild(b);});
+    const activePokemon=v8Active(side);
+    const trapped=!replacement&&!pivot&&isTrappedByOpponent(activePokemon,v8Active(v8Other(side)));
+    const recharging=!replacement&&!pivot&&Boolean(activePokemon?.rechargeNext);
+    team.forEach((p,i)=>{const b=document.createElement("button");b.className="switch-button";b.textContent=`${p.name}　${p.hp}/${p.maxHP}`;b.disabled=p.hp<=0||i===active||(trapped&&!pivot)||recharging||battleOver;if(recharging&&i!==active)b.title="反動で動けないターンは交代できません";b.addEventListener("click",()=>{if(replacement)v8ChooseReplacement(side,i);else if(pivot)v8SelectPivot(i);else if(v8BattleMode==="pvp")v8SelectSwitch(side,i);else playerSwitch(i);});switchContainer.appendChild(b);});
   }
 
   renderAll=function(){
@@ -7049,7 +7258,7 @@ scoreMove = function(attacker, defender, move) {
       if(v8SelectionB.length!==3)v8SelectionB=v10AiChooseSelection(v8RosterB,v8RosterA,v10CpuDifficultyB);
     }
     const selB=v8SelectionB;if(v8SelectionA.length!==3||selB.length!==3)return;
-    v10StopCpuCpuLoop();v10CpuCpuPaused=false;
+    v10StopCpuCpuLoop();v10CpuCpuPaused=false;v10AiResetBattleMemory();
     playerTeam=v8SelectionA.map(i=>createPokemon(v8RosterA[i],i));enemyTeam=selB.map(i=>createPokemon(v8RosterB[i],i));playerTeam.forEach(p=>p.side="player");enemyTeam.forEach(p=>p.side="enemy");
     playerActiveIndex=0;enemyActiveIndex=0;awaitingPlayerSwitch=false;battleOver=false;turnNumber=1;battleLog=[];weather={type:null,turns:0};fieldState={trickRoom:0,tailwind:{player:0,enemy:0}};if(typeof v6EnsureFieldState==="function"){fieldState.v6=null;v6EnsureFieldState();}
     v8WeatherMeta={sourceSide:null,sourcePokemon:null,extended:false};v8TerrainMeta={sourceSide:null,sourcePokemon:null,extended:false};v8ScreenMeta={player:{reflect:null,lightScreen:null},enemy:{reflect:null,lightScreen:null}};v8PendingActions={player:null,enemy:null};v8ReplacementState=null;v8PivotChoicePending=null;

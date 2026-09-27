@@ -15,6 +15,7 @@
   let registration = null;
   let refreshing = false;
   let toastTimer = null;
+  const boundRegistrations = new WeakSet();
 
   if (versionBadge) versionBadge.textContent = `v${APP_VERSION}`;
 
@@ -67,6 +68,8 @@
   function bindRegistration(reg) {
     registration = reg;
     if (reg.waiting && navigator.serviceWorker.controller) showWaiting(reg.waiting);
+    if (boundRegistrations.has(reg)) return;
+    boundRegistrations.add(reg);
 
     reg.addEventListener("updatefound", () => {
       const worker = reg.installing;
@@ -79,6 +82,27 @@
     });
   }
 
+  async function fetchDeployedVersion() {
+    // 既存Service Workerの古いapp-configキャッシュを確実に避けるため、
+    // 一意なクエリ + no-storeで配信元のバージョンを直接確認する。
+    const probeUrl = `./app-config.js?version-probe=${Date.now()}`;
+    const response = await fetch(probeUrl, { cache: "no-store", credentials: "same-origin" });
+    if (!response.ok) throw new Error(`version probe failed: ${response.status}`);
+    const text = await response.text();
+    const match = text.match(/version\s*:\s*["']([^"']+)["']/);
+    if (!match) throw new Error("version not found");
+    return match[1];
+  }
+
+  async function registerVersionedWorker(version) {
+    const reg = await navigator.serviceWorker.register(`./sw.js?release=${encodeURIComponent(version)}`, {
+      scope: "./",
+      updateViaCache: "none"
+    });
+    bindRegistration(reg);
+    return reg;
+  }
+
   async function checkForUpdate(userInitiated = false) {
     if (!registration) {
       if (userInitiated) showToast("PWA更新機能はHTTPSまたはlocalhostで利用できます。", 4400);
@@ -89,6 +113,15 @@
       return;
     }
     try {
+      const deployedVersion = await fetchDeployedVersion();
+      if (deployedVersion !== APP_VERSION) {
+        if (userInitiated) showToast(`新しいバージョン v${deployedVersion} を準備しています。`, 3600);
+        const reg = await registerVersionedWorker(deployedVersion);
+        await reg.update();
+        if (reg.waiting) showWaiting(reg.waiting);
+        return;
+      }
+
       await registration.update();
       if (registration.waiting) showWaiting(registration.waiting);
       else if (userInitiated) showToast(`現在のバージョンが最新です。v${APP_VERSION}`);
@@ -160,7 +193,7 @@
       location.reload();
     });
 
-    navigator.serviceWorker.register("./sw.js", { scope: "./", updateViaCache: "none" })
+    navigator.serviceWorker.register(`./sw.js?release=${encodeURIComponent(APP_VERSION)}`, { scope: "./", updateViaCache: "none" })
       .then(reg => {
         bindRegistration(reg);
         // 起動ごとにsw.jsだけ更新確認。新しいアプリ本体は待機SWの専用キャッシュへ入り、許可するまで現行版を維持する。
@@ -187,6 +220,7 @@
   window.__NIWARA_PWA__ = {
     version: APP_VERSION,
     checkForUpdate,
+    fetchDeployedVersion,
     standalone,
     isBattleInProgress
   };
