@@ -110,7 +110,7 @@
       <div class="section-heading">
         <div>
           <h2>② 対戦設定</h2>
-          <p>CPU戦または同じ端末での2人対戦を選択します。</p>
+          <p>CPU戦・CPU vs CPU観戦・同じ端末での2人対戦を選択します。</p>
         </div>
         <button id="mode-back-button" class="ghost-button">編成へ戻る</button>
       </div>
@@ -119,19 +119,36 @@
           <span>対戦形式</span>
           <select id="battle-mode-select">
             <option value="cpu">対CPU戦</option>
+            <option value="cpu-cpu">CPU vs CPU（観戦）</option>
             <option value="pvp">2人対戦（同じ端末）</option>
           </select>
         </label>
         <label class="mode-card">
-          <span>プレイヤーAのパーティー</span>
+          <span id="player-a-source-label">プレイヤーAのパーティー</span>
           <select id="player-a-party-source"></select>
         </label>
         <label class="mode-card">
           <span id="player-b-source-label">CPUのパーティー</span>
           <select id="player-b-party-source"></select>
         </label>
+        <label id="cpu-difficulty-a-card" class="mode-card hidden">
+          <span>CPU Aの強さ</span>
+          <select id="cpu-difficulty-a-select">
+            <option value="normal">普通</option>
+            <option value="strong">強い</option>
+            <option value="very-strong" selected>非常に強い</option>
+          </select>
+        </label>
+        <label id="cpu-difficulty-b-card" class="mode-card">
+          <span id="cpu-difficulty-b-label">CPUの強さ</span>
+          <select id="cpu-difficulty-b-select">
+            <option value="normal">普通</option>
+            <option value="strong">強い</option>
+            <option value="very-strong" selected>非常に強い</option>
+          </select>
+        </label>
       </div>
-      <div class="notice">2人対戦では、行動選択のたびに画面を隠す「端末を渡す」画面を挟みます。</div>
+      <div id="mode-help-note" class="notice">CPUは構築・選出・対戦を自動で行います。難易度が上がっても、相手の未公開情報は参照しません。</div>
       <div class="bottom-action-bar">
         <span></span>
         <button id="mode-continue-button" class="primary-button">選出へ</button>
@@ -207,6 +224,21 @@
             <button id="battle-damage-calc-button" type="button" class="ghost-button">ダメージ計算</button>
             <button id="battle-speed-check-button" type="button" class="ghost-button" data-open-speed-check aria-haspopup="dialog">素早さ比較</button>
           </div>
+        </div>
+      </section>
+
+      <section id="cpu-cpu-controls" class="cpu-cpu-controls hidden" aria-live="polite">
+        <div class="cpu-cpu-status-wrap"><strong>CPU vs CPU</strong><span id="cpu-cpu-status">自動進行中</span></div>
+        <div class="cpu-cpu-actions">
+          <button id="cpu-cpu-toggle-button" type="button" class="ghost-button">一時停止</button>
+          <button id="cpu-cpu-step-button" type="button" class="ghost-button">1ターン進める</button>
+          <label>進行速度
+            <select id="cpu-cpu-speed-select">
+              <option value="1200">ゆっくり</option>
+              <option value="650" selected>標準</option>
+              <option value="250">速い</option>
+            </select>
+          </label>
         </div>
       </section>
 

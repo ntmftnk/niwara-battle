@@ -5018,7 +5018,19 @@ scoreMove = function(attacker, defender, move) {
   const v8BattleModeSelect = document.getElementById("battle-mode-select");
   const v8PartySourceA = document.getElementById("player-a-party-source");
   const v8PartySourceB = document.getElementById("player-b-party-source");
+  const v8PlayerASourceLabel = document.getElementById("player-a-source-label");
   const v8PlayerBSourceLabel = document.getElementById("player-b-source-label");
+  const v10CpuDifficultyACard = document.getElementById("cpu-difficulty-a-card");
+  const v10CpuDifficultyBCard = document.getElementById("cpu-difficulty-b-card");
+  const v10CpuDifficultyASelect = document.getElementById("cpu-difficulty-a-select");
+  const v10CpuDifficultyBSelect = document.getElementById("cpu-difficulty-b-select");
+  const v10CpuDifficultyBLabel = document.getElementById("cpu-difficulty-b-label");
+  const v10ModeHelpNote = document.getElementById("mode-help-note");
+  const v10CpuCpuControls = document.getElementById("cpu-cpu-controls");
+  const v10CpuCpuStatus = document.getElementById("cpu-cpu-status");
+  const v10CpuCpuToggle = document.getElementById("cpu-cpu-toggle-button");
+  const v10CpuCpuStep = document.getElementById("cpu-cpu-step-button");
+  const v10CpuCpuSpeed = document.getElementById("cpu-cpu-speed-select");
   const v8ModeContinueButton = document.getElementById("mode-continue-button");
   const v8SelectionHeading = document.getElementById("selection-heading");
   const v8SelectionDescription = document.getElementById("selection-description");
@@ -5397,9 +5409,9 @@ scoreMove = function(attacker, defender, move) {
     setBuilderMessage(`「${party.name}」を削除しました。`, false);
   }
 
-  function v8GetSourceSets(value) {
+  function v8GetSourceSets(value, difficulty="strong") {
     if (value === "current") return v8CloneSets(builderSets);
-    if (value === "random") return v8BuildStrongRandomTeam();
+    if (value === "random") return v10BuildCpuTeam(difficulty);
     const p = v8SavedParties.find(x => x.id === value);
     return p ? v8CloneSets(p.sets) : v8CloneSets(builderSets);
   }
@@ -5415,20 +5427,35 @@ scoreMove = function(attacker, defender, move) {
     if (!v8PartySourceA || !v8PartySourceB) return;
     const aOld = v8PartySourceA.value;
     const bOld = v8PartySourceB.value;
-    const pvp = v8BattleModeSelect?.value === "pvp";
+    const mode = v8BattleModeSelect?.value || "cpu";
+    const pvp = mode === "pvp";
+    const cpuCpu = mode === "cpu-cpu";
 
     v8PartySourceA.replaceChildren();
-    v8AppendSourceOption(v8PartySourceA, "current", "現在の編成");
+    if (cpuCpu) v8AppendSourceOption(v8PartySourceA, "random", "CPUが自動構築");
+    else v8AppendSourceOption(v8PartySourceA, "current", "現在の編成");
     v8SavedParties.forEach(party => v8AppendSourceOption(v8PartySourceA, party.id, party.name));
 
     v8PartySourceB.replaceChildren();
     if (pvp) v8AppendSourceOption(v8PartySourceB, "current", "現在の編成");
-    else v8AppendSourceOption(v8PartySourceB, "random", "強化ランダムCPU構築");
+    else v8AppendSourceOption(v8PartySourceB, "random", "CPUが自動構築");
     v8SavedParties.forEach(party => v8AppendSourceOption(v8PartySourceB, party.id, party.name));
 
     if ([...v8PartySourceA.options].some(o => o.value === aOld)) v8PartySourceA.value = aOld;
     if ([...v8PartySourceB.options].some(o => o.value === bOld)) v8PartySourceB.value = bOld;
-    if (v8PlayerBSourceLabel) v8PlayerBSourceLabel.textContent = pvp ? "プレイヤーBのパーティー" : "CPUのパーティー";
+
+    if (v8PlayerASourceLabel) v8PlayerASourceLabel.textContent = cpuCpu ? "CPU Aのパーティー" : "プレイヤーAのパーティー";
+    if (v8PlayerBSourceLabel) v8PlayerBSourceLabel.textContent = pvp ? "プレイヤーBのパーティー" : (cpuCpu ? "CPU Bのパーティー" : "CPUのパーティー");
+    v10CpuDifficultyACard?.classList.toggle("hidden", !cpuCpu);
+    v10CpuDifficultyBCard?.classList.toggle("hidden", pvp);
+    if (v10CpuDifficultyBLabel) v10CpuDifficultyBLabel.textContent = cpuCpu ? "CPU Bの強さ" : "CPUの強さ";
+    if (v10ModeHelpNote) {
+      v10ModeHelpNote.textContent = pvp
+        ? "2人対戦では、行動選択のたびに画面を隠す「端末を渡す」画面を挟みます。"
+        : cpuCpu
+          ? "CPU A/Bが構築・3匹選出・対戦をすべて自動で行います。観戦中は一時停止や1ターン進行もできます。AIは各自の公開情報だけで判断します。"
+          : "CPUは構築・3匹選出・対戦を自動で行います。難易度が上がっても、あなたの未公開技・性格・能力P・持ち物・特性・未登場控えを直接参照しません。";
+    }
   }
 
   // ------------------------------------------------------------
@@ -5642,161 +5669,355 @@ scoreMove = function(attacker, defender, move) {
     return score;
   }
 
-  function v8BuildStrongRandomTeam() {
-    const groups = new Map();
-    Object.values(SPECIES_DEX).forEach(s => {
-      const key = getSpeciesClauseKey(s.id);
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(s);
-    });
-    const reps = [...groups.values()].map(arr => arr[0]);
-    let best = null, bestScore = -Infinity;
-    for (let n=0;n<180;n++) {
-      const picked = shuffle(reps).slice(0,6);
-      const used = new Set();
-      const team = picked.map(s => v8BuildStrongSet(s, used));
-      const score = v8TeamQuality(team) + Math.random()*5;
-      if (score > bestScore && !v8ValidateTeam(team)) { bestScore = score; best = team; }
-    }
-    return best || reps.slice(0,6).map(s => v8BuildStrongSet(s, new Set()));
+  // ============================================================
+  // v10.1 CPU AI
+  // ============================================================
+  const V10_AI_LEVELS = Object.freeze({
+    normal: { label:"普通", moveNoise:0.22, switchMargin:72, possibleMoves:4, defenderModels:1, lookahead:false },
+    strong: { label:"強い", moveNoise:0.08, switchMargin:36, possibleMoves:8, defenderModels:2, lookahead:false },
+    "very-strong": { label:"非常に強い", moveNoise:0.015, switchMargin:12, possibleMoves:14, defenderModels:3, lookahead:true }
+  });
+  let v10CpuDifficultyA="very-strong";
+  let v10CpuDifficultyB="very-strong";
+
+  function v10AiLevel(difficulty){ return V10_AI_LEVELS[difficulty] || V10_AI_LEVELS.strong; }
+  function v10DifficultyForSide(side){ return side==="player" ? v10CpuDifficultyA : v10CpuDifficultyB; }
+  function v10SideIsCpu(side){
+    if(v8BattleMode==="cpu-cpu") return true;
+    if(v8BattleMode==="cpu") return side==="enemy";
+    return false;
+  }
+  function v10DifficultyLabel(d){ return v10AiLevel(d).label; }
+
+  function v10BuildNormalSet(species, usedItems=new Set()){
+    const rankedAbilities=[...species.abilities].sort((a,b)=>(V8_ABILITY_VALUE[b.id]||0)-(V8_ABILITY_VALUE[a.id]||0));
+    const ability=rankedAbilities[Math.floor(Math.random()*Math.min(2,rankedAbilities.length))] || species.abilities[0];
+    const candidates=species.movePool.map(id=>MOVE_DEX[id]).filter(Boolean)
+      .sort((a,b)=>v8MoveStaticScore(species,b,ability?.id)-v8MoveStaticScore(species,a,ability?.id));
+    const pool=candidates.slice(0,Math.min(10,candidates.length));
+    const picked=[];
+    const add=m=>{if(m&&!picked.includes(m.id)&&picked.length<4)picked.push(m.id);};
+    add(pool.find(m=>m.category!=="status"&&species.types.includes(m.type))||pool[0]);
+    shuffle(pool.slice(1)).forEach(add);
+    candidates.forEach(add);
+    const moves=picked.slice(0,4);
+    return normalizeSet({speciesId:species.id,abilityId:ability.id,itemId:v8ItemFor(species,ability,moves,usedItems),nature:v8NatureFor(species),statPoints:v8PointsFor(species),moves});
   }
 
-  // ------------------------------------------------------------
-  // 強化CPU
-  // ------------------------------------------------------------
-  const V8_prevScoreMove = scoreMove;
-  function v8ExpectedDamage(attacker, defender, move) {
-    try {
-      const effective = getEffectiveMove(attacker, move);
-      if (!effective || effective.category === "status") return 0;
-      const r = calculateDamage(attacker, defender, effective, { randomFactor: 0.925, forceCritical: false });
-      let damage=Number(r?.damage || 0);
-      if(typeof v6CanTriggerResistBerry==="function" && v6CanTriggerResistBerry(defender,effective,r?.effectiveness??1)) damage=Math.max(1,Math.floor(damage*0.5));
-      return damage;
-    } catch (_) { return 0; }
-  }
-
-  scoreMove = function(attacker, defender, move) {
-    const effective = getEffectiveMove(attacker, move);
-    let score = Number(V8_prevScoreMove(attacker, defender, move)) || 0;
-    if (!effective) return score;
-    if (effective.category !== "status") {
-      const dmg = v8ExpectedDamage(attacker, defender, move);
-      const ratio = dmg / Math.max(1, defender.maxHP);
-      // みらいよちは即時打点ではない。予約済みなら選ばず、未予約でも遅延価値として控えめに評価する。
-      if (effective.futureSight) {
-        const pending = typeof v6GetSideState === "function" ? v6GetSideState(defender.side)?.futureSight : null;
-        if (pending) return -9999;
-        return 28 + ratio * 85 + ((effective.accuracy ?? 100) - 80) * 0.2;
-      }
-      score += ratio * 150;
-      score += ((effective.accuracy ?? 100)-80) * 0.35;
-      if (dmg >= defender.hp) score += 145;
-      if (effective.priority > 0 && defender.hp <= dmg) score += 55;
-      if (getTypeEffectivenessV5(attacker, defender, effective) > 1) score += 28;
-      if (effective.pivot && attacker.hp < attacker.maxHP * 0.65) score += 18;
-      if (effective.drainRatio && attacker.hp < attacker.maxHP * 0.65) score += 25;
-      if (effective.recoilRatio && attacker.hp < attacker.maxHP * 0.28) score -= 45;
-      if (effective.recharge && dmg < defender.hp) score -= 70;
-      if (effective.recoilMaxHPRatio && dmg < defender.hp && attacker.hp <= attacker.maxHP * 0.6) score -= 55;
-    } else {
-      const hp = attacker.hp/attacker.maxHP;
-      if (effective.rest && hp > 0.72 && !attacker.status) return -120;
-      if ((effective.healRatio || effective.recover) && hp > 0.88) return -90;
-      if (effective.healRatio || effective.rest || effective.recover) score += hp < .4 ? 100 : hp < .7 ? 35 : -35;
-      if (effective.selfStatChanges) {
-        const gains = Object.entries(effective.selfStatChanges).reduce((a,[k,v]) => a + Math.max(0, Math.min(v, 6-(attacker.stages[k]||0))),0);
-        score += gains*16 - (hp < .35 ? 40 : 0);
-      }
-      if (effective.hazard || effective.stealthRock || effective.spikes || effective.toxicSpikes || effective.stickyWeb) {
-        const targetSide = v6GetSideState(defender.side);
-        const hz = effective.hazard;
-        if ((hz === "stealthRock" && targetSide.stealthRock) ||
-            (hz === "stickyWeb" && targetSide.stickyWeb) ||
-            (hz === "spikes" && (targetSide.spikes || 0) >= 3) ||
-            (hz === "toxicSpikes" && (targetSide.toxicSpikes || 0) >= 2)) score -= 65;
-        else score += 38;
-      }
-      if ((effective.screen === "reflect" || effective.reflect) && v6GetSideState(attacker.side).reflect <= 0) score += 45;
-      if ((effective.screen === "lightScreen" || effective.lightScreen) && v6GetSideState(attacker.side).lightScreen <= 0) score += 45;
-      if (effective.tailwind && fieldState.tailwind[attacker.side] <= 0) score += 42;
-      if (effective.trickRoom) score += getModifiedStat(attacker,"speed") < getModifiedStat(defender,"speed") ? 48 : -10;
-      if ((effective.status || effective.toxic || effective.yawn) && !defender.status) score += 38;
-      if (effective.taunt && !defender.tauntTurns) score += 28;
-      if (effective.protect || effective.protectLike) score += hp < .3 ? 30 : 8;
-      if (effective.weather && weather.type === effective.weather) score -= 45;
-      if (effective.terrain && v6EnsureFieldState().terrain.type === effective.terrain) score -= 35;
-    }
-    return score;
-  };
-
-  chooseBestMove = function(attacker, defender) {
-    const selectable = getSelectableMoves(attacker);
-    if (!selectable.length) return { ...STRUGGLE_MOVE };
-    let best = selectable[0], bestScore = -Infinity;
-    selectable.forEach(move => {
-      const s = scoreMove(attacker, defender, move) * (0.96 + Math.random()*0.08);
-      if (s > bestScore) { bestScore=s; best=move; }
+  function v10TeamStrategicQuality(sets){
+    let score=v8TeamQuality(sets);
+    const attackTypes=new Set(), roles={physical:0,special:0,fast:0,bulky:0};
+    let priority=0,pivot=0,recovery=0,hazards=0,speedControl=0,status=0;
+    sets.forEach(set=>{
+      const sp=SPECIES_DEX[set.speciesId],r=v8Role(sp);
+      if(r.phys)roles.physical++; if(r.spec)roles.special++; if(r.fast)roles.fast++; if(r.bulky)roles.bulky++;
+      set.moves.map(id=>MOVE_DEX[id]).filter(Boolean).forEach(m=>{
+        if(m.category!=="status"){attackTypes.add(m.type);if((m.priority||0)>0)priority++;}
+        if(m.pivot) pivot++;
+        if(m.healRatio||m.recover||m.roost||m.moonlight||m.synthesis||m.rest) recovery++;
+        if(m.hazard||m.stealthRock||m.spikes||m.toxicSpikes||m.stickyWeb) hazards++;
+        if(m.tailwind||m.trickRoom||m.stickyWeb) speedControl++;
+        if(m.status||m.toxic||m.yawn||m.taunt||m.encore||m.disable) status++;
+      });
     });
-    return best;
-  };
-
-  function v8IncomingThreat(defender, attacker) {
-    const moves = getSelectableMoves(attacker).filter(m => getEffectiveMove(attacker,m).category !== "status");
-    return moves.reduce((mx,m) => Math.max(mx, v8ExpectedDamage(attacker, defender, m)), 0);
-  }
-
-  function v8SwitchScore(candidate, foe) {
-    const offense = bestDamageScoreForPokemon(candidate, foe);
-    const incoming = v8IncomingThreat(candidate, foe);
-    const survival = 1 - Math.min(1.5, incoming / Math.max(1,candidate.hp));
-    const hp = candidate.hp/candidate.maxHP;
-    return offense + survival*70 + hp*30 + (candidate.speed > foe.speed ? 8 : 0);
-  }
-
-  chooseEnemyAction = function() {
-    const enemy = getEnemyPokemon(), player = getPlayerPokemon();
-    if (!enemy || !player) return { type:"move", move: enemy?.moves?.[0] || STRUGGLE_MOVE };
-    const bestMove = chooseBestMove(enemy, player);
-    const moveScore = scoreMove(enemy, player, bestMove);
-    const currentThreat = v8IncomingThreat(enemy, player);
-    const currentDanger = currentThreat >= enemy.hp || getTypeEffectivenessV5(player, enemy, chooseBestMove(player, enemy)) > 1;
-    let bestSwitch = null, bestSwitchScore = -Infinity;
-    enemyTeam.forEach((p,i) => {
-      if (i===enemyActiveIndex || p.hp<=0) return;
-      const s = v8SwitchScore(p, player);
-      if (s > bestSwitchScore) { bestSwitchScore=s; bestSwitch=i; }
-    });
-    if (bestSwitch !== null && ((currentDanger && bestSwitchScore > moveScore*0.7) || bestSwitchScore > moveScore + 95) && Math.random() < .88) {
-      return { type:"switch", index:bestSwitch };
-    }
-    return { type:"move", move:bestMove };
-  };
-
-  function v8MatchupScore(set, enemySets) {
-    const p = createPokemon(set, 0); p.side="enemy";
-    let score=0;
-    enemySets.forEach(es => {
-      const foe=createPokemon(es,0); foe.side="player";
-      const out=bestDamageScoreForPokemon(p,foe)/Math.max(1,foe.maxHP);
-      const inc=v8IncomingThreat(p,foe)/Math.max(1,p.maxHP);
-      score += out*80 - inc*55;
-    });
+    score += attackTypes.size*2.2 + Math.min(priority,3)*4 + Math.min(pivot,3)*4 + Math.min(recovery,4)*3;
+    score += Math.min(hazards,2)*6 + Math.min(speedControl,2)*7 + Math.min(status,3)*2;
+    if(roles.physical===0||roles.special===0)score-=14;
+    if(roles.fast===0)score-=12;
+    if(roles.bulky===0)score-=8;
     return score;
   }
 
-  function v8ChooseCpuSelection(roster, opponentRoster) {
-    const idx = roster.map((_,i)=>i);
-    let best=[0,1,2], bestScore=-Infinity;
-    for(let a=0;a<idx.length;a++) for(let b=a+1;b<idx.length;b++) for(let c=b+1;c<idx.length;c++) {
-      const arr=[a,b,c];
-      let s=arr.reduce((sum,i)=>sum+v8MatchupScore(roster[i],opponentRoster),0);
-      if (s>bestScore){bestScore=s;best=arr;}
+  function v10BuildCpuTeam(difficulty="strong"){
+    const groups=new Map();
+    Object.values(SPECIES_DEX).forEach(sp=>{const key=getSpeciesClauseKey(sp.id);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(sp);});
+    const reps=[...groups.values()].map(arr=>arr[0]);
+    if(difficulty==="normal"){
+      const used=new Set();
+      return shuffle(reps).slice(0,6).map(sp=>v10BuildNormalSet(sp,used));
     }
-    // 先発は6匹全体への平均相性で最良を先頭に。
-    best.sort((i,j)=>v8MatchupScore(roster[j],opponentRoster)-v8MatchupScore(roster[i],opponentRoster));
+    const attempts=difficulty==="very-strong"?720:220;
+    let best=null,bestScore=-Infinity;
+    for(let n=0;n<attempts;n++){
+      const picked=shuffle(reps).slice(0,6),used=new Set();
+      const team=picked.map(sp=>v8BuildStrongSet(sp,used));
+      const score=(difficulty==="very-strong"?v10TeamStrategicQuality(team):v8TeamQuality(team))+Math.random()*(difficulty==="very-strong"?1.2:4.5);
+      if(score>bestScore&&!v8ValidateTeam(team)){bestScore=score;best=team;}
+    }
+    return best || reps.slice(0,6).map(sp=>v8BuildStrongSet(sp,new Set()));
+  }
+  function v8BuildStrongRandomTeam(){ return v10BuildCpuTeam("strong"); }
+
+  // ---- Public-information boundary -------------------------------------------------
+  // AIが相手について読むのは、このsnapshotが返すフィールドだけ。
+  // hidden set / nature / statPoints / unrevealed item/ability/moves / unseen selected bench は渡さない。
+  function v10AiPublicOpponent(side){
+    const foe=v8Active(v8Other(side));
+    if(!foe)return null;
+    const k=v8EnsureKnowledge(foe);
+    return Object.freeze({
+      side:v8Other(side), speciesId:foe.id, types:[...foe.types], hpPercent:v8HPPercent(foe),
+      status:foe.status||null, stages:{...foe.stages},
+      abilityId:k.ability?foe.ability?.id:null,
+      itemId:k.item?(foe.itemConsumed?"none":foe.item?.id):null,
+      revealedMoves:[...k.moves],
+      substitute:Boolean(foe.substituteHP>0), tauntTurns:foe.tauntTurns>0?1:0,
+      confused:Boolean(foe.confusedTurns>0), seeded:Boolean(foe.seeded),
+      protectChain:foe.protectThisTurn?1:0
+    });
+  }
+  function v10AiOpponentPreviewSpecies(side){
+    const roster=side==="player"?v8RosterB:v8RosterA;
+    return roster.map(set=>set.speciesId); // 見せ合いで公開される種族IDのみ
+  }
+  function v10AiSeenOpponentSpecies(side){
+    const team=v8GetTeam(v8Other(side));
+    return team.filter(p=>v8EnsureKnowledge(p).seen).map(p=>p.id);
+  }
+  function v10AiPossibleUnseenSpecies(side){
+    const preview=v10AiOpponentPreviewSpecies(side),seen=v10AiSeenOpponentSpecies(side);
+    const counts=new Map();seen.forEach(id=>counts.set(id,(counts.get(id)||0)+1));
+    return preview.filter(id=>{const n=counts.get(id)||0;if(n>0){counts.set(id,n-1);return false;}return true;});
+  }
+
+  function v10AiAbilityCandidates(pub,difficulty){
+    const sp=SPECIES_DEX[pub.speciesId];
+    if(pub.abilityId)return [pub.abilityId];
+    const ids=sp.abilities.map(a=>a.id);
+    if(difficulty==="normal")return ids.slice(0,1);
+    return ids;
+  }
+  function v10AiBaseSet(speciesId,abilityId,itemId="none",nature="まじめ",points=null){
+    const sp=SPECIES_DEX[speciesId];
+    const moves=sp.movePool.slice(0,4);
+    const statPoints=points||{hp:0,attack:0,defense:0,specialAttack:0,specialDefense:0,speed:0};
+    return normalizeSet({speciesId,abilityId:abilityId||sp.abilities[0].id,itemId:itemId||"none",nature,statPoints,moves});
+  }
+  function v10AiBeliefDefenders(pub,move,difficulty){
+    const level=v10AiLevel(difficulty),cat=move.category;
+    const relevant=cat==="physical"?"defense":"specialDefense";
+    const profiles=[{hp:0,attack:0,defense:0,specialAttack:0,specialDefense:0,speed:0}];
+    if(level.defenderModels>=2){const x={hp:20,attack:0,defense:0,specialAttack:0,specialDefense:0,speed:0};x[relevant]=20;profiles.push(x);}
+    if(level.defenderModels>=3){const x={hp:32,attack:0,defense:0,specialAttack:0,specialDefense:0,speed:2};x[relevant]=32;profiles.push(x);}
+    const result=[];
+    for(const abilityId of v10AiAbilityCandidates(pub,difficulty))for(const points of profiles){
+      const set=v10AiBaseSet(pub.speciesId,abilityId,pub.itemId||"none","まじめ",points);
+      const p=createPokemon(set,0);p.side=pub.side;p.types=[...pub.types];p.status=pub.status;p.stages={...p.stages,...pub.stages};
+      p.hp=Math.max(1,Math.floor(p.maxHP*Math.max(1,pub.hpPercent)/100));
+      if(pub.substitute)p.substituteHP=Math.max(1,Math.floor(p.maxHP/4));
+      result.push(p);
+    }
+    return result;
+  }
+  function v10AiBeliefAttackers(pub,move,difficulty){
+    const cat=move.category,stat=cat==="physical"?"attack":"specialAttack";
+    const points={hp:2,attack:0,defense:0,specialAttack:0,specialDefense:0,speed:32};points[stat]=32;
+    const nature=cat==="physical"?"いじっぱり":"ひかえめ";
+    return v10AiAbilityCandidates(pub,difficulty).map(abilityId=>{
+      const p=createPokemon(v10AiBaseSet(pub.speciesId,abilityId,pub.itemId||"none",nature,points),0);
+      p.side=pub.side;p.types=[...pub.types];p.status=pub.status;p.stages={...p.stages,...pub.stages};return p;
+    });
+  }
+  function v10AiExpectedDamageInfo(attacker,pub,move,difficulty){
+    const eff=getEffectiveMove(attacker,move);
+    if(!eff||eff.category==="status")return {mean:0,min:0,max:0,accuracy:eff?.accuracy??100};
+    const vals=[];
+    for(const defender of v10AiBeliefDefenders(pub,eff,difficulty)){
+      try{
+        const r=calculateDamage(attacker,defender,eff,{randomFactor:0.925,forceCritical:false});
+        let dmg=Number(r?.damage||0);
+        if(typeof v6CanTriggerResistBerry==="function"&&v6CanTriggerResistBerry(defender,eff,r?.effectiveness??1))dmg=Math.max(1,Math.floor(dmg*0.5));
+        vals.push(dmg/Math.max(1,defender.maxHP));
+      }catch(_){vals.push(0);}
+    }
+    if(!vals.length)vals.push(0);
+    return {mean:vals.reduce((a,b)=>a+b,0)/vals.length,min:Math.min(...vals),max:Math.max(...vals),accuracy:eff.accuracy??100};
+  }
+  function v10AiMoveStaticThreat(sp,move){
+    if(!move||move.category==="status")return -999;
+    let x=(move.power||0)*((move.accuracy??100)/100);
+    if(sp.types.includes(move.type))x*=1.35;
+    if((move.priority||0)>0)x+=18;
+    if(move.recharge)x-=25;
+    if(move.selfDestruct||move.faintUser)x-=18;
+    return x;
+  }
+  function v10AiPossibleOpponentMoves(pub,difficulty){
+    const sp=SPECIES_DEX[pub.speciesId],limit=v10AiLevel(difficulty).possibleMoves;
+    const revealed=pub.revealedMoves.map(id=>MOVE_DEX[id]).filter(Boolean);
+    const candidates=sp.movePool.map(id=>MOVE_DEX[id]).filter(m=>m&&m.category!=="status")
+      .sort((a,b)=>v10AiMoveStaticThreat(sp,b)-v10AiMoveStaticThreat(sp,a));
+    const out=[];const add=m=>{if(m&&!out.some(x=>x.id===m.id))out.push(m);};
+    revealed.forEach(add);candidates.slice(0,limit).forEach(add);return out;
+  }
+  function v10AiIncomingThreat(candidate,pub,difficulty){
+    if(!candidate||!pub)return {expected:0,worst:0,physical:0,special:0};
+    const moves=v10AiPossibleOpponentMoves(pub,difficulty),revealed=new Set(pub.revealedMoves);
+    const values=[];let phys=0,spec=0;
+    for(const move of moves){
+      let best=0;
+      for(const attacker of v10AiBeliefAttackers(pub,move,difficulty)){
+        try{const r=calculateDamage(attacker,candidate,move,{randomFactor:0.925,forceCritical:false});best=Math.max(best,(Number(r?.damage||0)/Math.max(1,candidate.maxHP))*((move.accuracy??100)/100));}catch(_){}
+      }
+      const certainty=revealed.has(move.id)?1:(difficulty==="normal"?0.38:difficulty==="strong"?0.58:0.72);
+      const weighted=best*certainty;values.push(weighted);
+      if(move.category==="physical")phys=Math.max(phys,weighted);else spec=Math.max(spec,weighted);
+    }
+    values.sort((a,b)=>b-a);
+    const worst=values[0]||0,expected=values.slice(0,Math.min(3,values.length)).reduce((a,b)=>a+b,0)/Math.max(1,Math.min(3,values.length));
+    return {expected,worst,physical:phys,special:spec};
+  }
+  function v10AiApproxSpeed(pub,difficulty){
+    const sp=SPECIES_DEX[pub.speciesId];
+    const set=v10AiBaseSet(pub.speciesId,pub.abilityId||sp.abilities[0].id,pub.itemId||"none","まじめ",{hp:0,attack:0,defense:0,specialAttack:0,specialDefense:0,speed:difficulty==="normal"?0:16});
+    const p=createPokemon(set,0);p.side=pub.side;p.stages={...p.stages,...pub.stages};
+    return getModifiedStat(p,"speed");
+  }
+  function v10AiHazardValueAgainstOpponent(side,move){
+    const ss=v6GetSideState(v8Other(side));
+    const hz=move.hazard;
+    if((hz==="stealthRock"&&ss.stealthRock)||(hz==="stickyWeb"&&ss.stickyWeb)||(hz==="spikes"&&(ss.spikes||0)>=3)||(hz==="toxicSpikes"&&(ss.toxicSpikes||0)>=2))return -80;
+    const unseen=Math.max(0,3-v10AiSeenOpponentSpecies(side).length);
+    return 28+unseen*12;
+  }
+  function v10AiSwitchCoverageAdjustment(side,move,difficulty){
+    if(!v10AiLevel(difficulty).lookahead||move.category==="status")return 0;
+    const possible=v10AiPossibleUnseenSpecies(side);if(!possible.length)return 0;
+    const sample=possible.slice(0,6);let immune=0,resisted=0,superEff=0;
+    sample.forEach(id=>{const mult=getTypeEffectiveness(move.type,SPECIES_DEX[id].types);if(mult===0)immune++;else if(mult<1)resisted++;else if(mult>1)superEff++;});
+    return superEff*4-immune*13-resisted*4;
+  }
+  function v10AiScoreMoveFor(attacker,side,pub,move,difficulty){
+    const eff=getEffectiveMove(attacker,move);if(!eff)return -9999;
+    const hp=attacker.hp/Math.max(1,attacker.maxHP),level=v10AiLevel(difficulty);
+    if(eff.category!=="status"){
+      const info=v10AiExpectedDamageInfo(attacker,pub,move,difficulty),visible=Math.max(.01,pub.hpPercent/100);
+      let score=info.mean*205 + (info.accuracy-80)*0.25 + v10AiSwitchCoverageAdjustment(side,eff,difficulty);
+      if(info.min>=visible)score+=155;else if(info.mean>=visible)score+=105;else if(info.max>=visible)score+=42;
+      if((eff.priority||0)>0){score+=18;if(info.mean>=visible)score+=48;}
+      if(eff.pivot){const threat=v10AiIncomingThreat(attacker,pub,difficulty);score+=14+Math.max(0,threat.expected-.45)*55;}
+      if(eff.drainRatio&&hp<.72)score+=26;
+      if((eff.recoilRatio||eff.recoilMaxHPRatio)&&hp<.35)score-=55;
+      if(eff.recharge&&info.mean<visible)score-=72;
+      if(eff.futureSight){const pending=v6GetSideState(pub.side)?.futureSight;if(pending)return -9999;score=38+info.mean*75;}
+      if(eff.selfDestruct||eff.faintUser){score+=info.mean>=visible?30:-85;if(hp<.22)score+=24;}
+      return score;
+    }
+    let score=10;
+    const threat=v10AiIncomingThreat(attacker,pub,difficulty);
+    if(eff.healRatio||eff.recover||eff.roost||eff.moonlight||eff.synthesis){score+=hp<.32?125:hp<.55?72:hp<.75?22:-90;score+=threat.expected*45;}
+    if(eff.rest){score+=hp<.36?96:hp<.58?45:-100;if(attacker.status)score+=35;}
+    if(eff.selfStatChanges){let gains=0;for(const [stat,n] of Object.entries(eff.selfStatChanges))gains+=Math.max(0,Math.min(n,6-(attacker.stages[stat]||0)));score+=gains*19;if(hp<.38)score-=42;if(threat.worst<.45)score+=28;}
+    if(eff.hazard||eff.stealthRock||eff.spikes||eff.toxicSpikes||eff.stickyWeb)score+=v10AiHazardValueAgainstOpponent(side,eff);
+    const ownSS=v6GetSideState(side);
+    if((eff.screen==="reflect"||eff.reflect))score+=ownSS.reflect>0?-70:42+threat.physical*35;
+    if((eff.screen==="lightScreen"||eff.lightScreen))score+=ownSS.lightScreen>0?-70:42+threat.special*35;
+    if(eff.tailwind)score+=fieldState.tailwind[side]>0?-65:(getModifiedStat(attacker,"speed")<v10AiApproxSpeed(pub,difficulty)?62:28);
+    if(eff.trickRoom){const slower=getModifiedStat(attacker,"speed")<v10AiApproxSpeed(pub,difficulty);score+=fieldState.trickRoom>0?-38:(slower?64:-24);}
+    if(eff.status||eff.toxic||eff.yawn)score+=pub.status? -80:54;
+    if(eff.taunt)score+=pub.tauntTurns>0?-60:34;
+    if(eff.encore)score+=pub.revealedMoves.length?30:8;
+    if(eff.disable)score+=pub.revealedMoves.length?28:6;
+    if(eff.protect||eff.protectLike){score+=hp<.28?34:12;if(attacker.status||attacker.seeded)score-=14;}
+    if(eff.weather)score+=weather.type===eff.weather?-55:22;
+    if(eff.terrain)score+=v6EnsureFieldState().terrain.type===eff.terrain?-50:24;
+    if(eff.substitute)score+=hp>.55?24:-45;
+    if(eff.forceSwitch)score+=v10AiSeenOpponentSpecies(side).length<3?18:8;
+    return score;
+  }
+  function v10AiRankMoves(side,difficulty){
+    const attacker=v8Active(side),pub=v10AiPublicOpponent(side);if(!attacker||!pub)return [];
+    const selectable=getSelectableMoves(attacker),moves=selectable.length?selectable:[{...STRUGGLE_MOVE}];
+    return moves.map(move=>({move,score:v10AiScoreMoveFor(attacker,side,pub,move,difficulty)})).sort((a,b)=>b.score-a.score);
+  }
+  function v10AiSwitchScore(side,candidate,pub,difficulty){
+    const threat=v10AiIncomingThreat(candidate,pub,difficulty),hp=candidate.hp/Math.max(1,candidate.maxHP);
+    let offense=-999;
+    for(const move of getSelectableMoves(candidate)){offense=Math.max(offense,v10AiScoreMoveFor(candidate,side,pub,move,difficulty));}
+    if(!Number.isFinite(offense))offense=0;
+    let score=offense*.72 + hp*42 - threat.expected*115 - threat.worst*55;
+    if(getModifiedStat(candidate,"speed")>v10AiApproxSpeed(pub,difficulty))score+=12;
+    const ss=v6GetSideState(side);if(ss.stealthRock)score-=getTypeEffectiveness("いわ",candidate.types)*8;if((ss.spikes||0)>0&&!v6IsGrounded(candidate))score+=0;else score-=(ss.spikes||0)*5;
+    if(candidate.ability?.id==="regenerator"&&candidate.hp<candidate.maxHP*.7)score+=8;
+    return score;
+  }
+  function v10AiChooseSwitchIndex(side,difficulty,{replacement=false,pivot=false}={}){
+    const pub=v10AiPublicOpponent(side),team=v8GetTeam(side),active=v8GetIndex(side);
+    const list=team.map((p,i)=>({p,i})).filter(x=>x.i!==active&&x.p.hp>0);if(!list.length)return -1;
+    const ranked=list.map(x=>({...x,score:v10AiSwitchScore(side,x.p,pub,difficulty)})).sort((a,b)=>b.score-a.score);
+    if(difficulty==="normal"&&ranked.length>1&&Math.random()<.28)return ranked[Math.floor(Math.random()*Math.min(2,ranked.length))].i;
+    return ranked[0].i;
+  }
+  function v10AiChooseAction(side,difficulty=v10DifficultyForSide(side)){
+    const own=v8Active(side),pub=v10AiPublicOpponent(side);if(!own||!pub)return {type:"move",move:own?.moves?.[0]||{...STRUGGLE_MOVE}};
+    const selectable=getSelectableMoves(own);
+    if(own.chargingMoveId||own.rampageMoveId){return {type:"move",move:selectable[0]||own.moves.find(m=>m.id===own.chargingMoveId||m.id===own.rampageMoveId)||{...STRUGGLE_MOVE},forced:true};}
+    if(own.rechargeNext)return {type:"move",move:{...STRUGGLE_MOVE,id:"v10-recharge-skip",name:"反動",struggle:true},forced:true};
+    const ranked=v10AiRankMoves(side,difficulty);let best=ranked[0]||{move:{...STRUGGLE_MOVE},score:0};
+    const level=v10AiLevel(difficulty);
+    if(ranked.length>1&&level.moveNoise>0){
+      const top=ranked.slice(0,Math.min(difficulty==="normal"?3:2,ranked.length));
+      if(Math.random()<level.moveNoise)best=top[Math.floor(Math.random()*top.length)];
+    }
+    if(!isTrappedByOpponent(own,v8Active(v8Other(side)))&&v8HasBench(side)){
+      const idx=v10AiChooseSwitchIndex(side,difficulty),candidate=idx>=0?v8GetTeam(side)[idx]:null;
+      if(candidate){
+        const switchScore=v10AiSwitchScore(side,candidate,pub,difficulty);
+        const currentThreat=v10AiIncomingThreat(own,pub,difficulty);
+        const danger=currentThreat.worst>=own.hp/Math.max(1,own.maxHP)||currentThreat.expected>.62;
+        let threshold=best.score+level.switchMargin;
+        if(danger)threshold-=difficulty==="very-strong"?58:difficulty==="strong"?35:10;
+        if(switchScore>threshold&&(difficulty!=="normal"||Math.random()<.55))return {type:"switch",index:idx};
+      }
+    }
+    return {type:"move",move:best.move};
+  }
+
+  // Compatibility hooks used by the human-vs-CPU resolver. These now use the public-information AI.
+  chooseEnemyAction=function(){ return v10AiChooseAction("enemy",v10CpuDifficultyB); };
+  chooseEnemyReplacement=function(){ return v10AiChooseSwitchIndex("enemy",v10CpuDifficultyB,{replacement:true}); };
+
+  function v10AiSelectionPublic(speciesId){
+    const sp=SPECIES_DEX[speciesId];return {side:"player",speciesId,types:[...sp.types],hpPercent:100,status:null,stages:{attack:0,defense:0,specialAttack:0,specialDefense:0,speed:0,accuracy:0,evasion:0},abilityId:null,itemId:null,revealedMoves:[],substitute:false,tauntTurns:0,confused:false,seeded:false,protectChain:0};
+  }
+  function v10AiSelectionMatrix(roster,opponentRoster,difficulty){
+    const oppSpecies=opponentRoster.map(x=>x.speciesId); // opponent set details intentionally discarded
+    // 選出評価は前の対戦の天候・壁・フィールド等を引き継がない中立盤面で行う。
+    const savedWeather=weather,savedField=fieldState;
+    weather={type:null,turns:0};fieldState={trickRoom:0,tailwind:{player:0,enemy:0}};if(typeof v6EnsureFieldState==="function")v6EnsureFieldState();
+    try{
+      return roster.map((set,i)=>{
+        const own=createPokemon(set,i);own.side="enemy";
+        return oppSpecies.map(id=>{
+          const pub=v10AiSelectionPublic(id);pub.side="player";
+          let offense=0;for(const m of own.moves)offense=Math.max(offense,v10AiExpectedDamageInfo(own,pub,m,difficulty).mean);
+          const threat=v10AiIncomingThreat(own,pub,difficulty);
+          return offense*100-threat.expected*68-threat.worst*22;
+        });
+      });
+    }finally{weather=savedWeather;fieldState=savedField;}
+  }
+  function v10AiChooseSelection(roster,opponentRoster,difficulty="strong"){
+    const idx=roster.map((_,i)=>i);
+    if(difficulty==="normal")return shuffle(idx).slice(0,3);
+    const matrix=v10AiSelectionMatrix(roster,opponentRoster,difficulty);
+    let best=[0,1,2],bestScore=-Infinity;
+    for(let a=0;a<idx.length;a++)for(let b=a+1;b<idx.length;b++)for(let c=b+1;c<idx.length;c++){
+      const trio=[a,b,c];let score=0;
+      for(let j=0;j<opponentRoster.length;j++){
+        const vals=trio.map(i=>matrix[i][j]).sort((x,y)=>y-x);score+=vals[0]+(difficulty==="very-strong"?(vals[1]||0)*.22:0);
+      }
+      if(difficulty==="very-strong")score+=v10TeamStrategicQuality(trio.map(i=>roster[i]))*.55;
+      if(score>bestScore){bestScore=score;best=trio;}
+    }
+    best.sort((i,j)=>{
+      const ai=matrix[i].reduce((a,b)=>a+b,0)/matrix[i].length;
+      const aj=matrix[j].reduce((a,b)=>a+b,0)/matrix[j].length;return aj-ai;
+    });
     return best;
   }
+  function v8ChooseCpuSelection(roster,opponentRoster){ return v10AiChooseSelection(roster,opponentRoster,"strong"); }
+
 
   // ------------------------------------------------------------
   // 対戦モード / 選出
@@ -5810,19 +6031,28 @@ scoreMove = function(attacker, defender, move) {
   let v8SelectionView = "chooser";
 
   function v8OpenModeScreen() {
-    const error = v8ValidateTeam(builderSets);
-    if (error) { setBuilderMessage(error,true); showScreen("builder"); return; }
+    // CPU vs CPUは現在の編成を使わずに両CPUが自動構築できるため、ここでは編成妥当性で入口を塞がない。
+    // 「現在の編成」を実際に選んだ場合は、次画面へ進む時点でv8ValidateTeamが検証する。
     v8RenderBattleSourceOptions();
     showScreen("mode");
   }
 
   function v8StartSelectionSetup() {
     v8BattleMode = v8BattleModeSelect.value;
-    v8RosterA = v8GetSourceSets(v8PartySourceA.value);
-    v8RosterB = v8GetSourceSets(v8PartySourceB.value);
+    v10CpuDifficultyA = v10CpuDifficultyASelect?.value || "very-strong";
+    v10CpuDifficultyB = v10CpuDifficultyBSelect?.value || "very-strong";
+    v8RosterA = v8GetSourceSets(v8PartySourceA.value, v10CpuDifficultyA);
+    v8RosterB = v8GetSourceSets(v8PartySourceB.value, v10CpuDifficultyB);
     const errA=v8ValidateTeam(v8RosterA), errB=v8ValidateTeam(v8RosterB);
     if (errA || errB) { setBuilderMessage(errA || errB,true); showScreen("builder"); return; }
     v8SelectionA=[]; v8SelectionB=[]; v8SelectionStage="A"; v8SelectionView="chooser";
+    if(v8BattleMode==="cpu"){
+      v8SelectionB=v10AiChooseSelection(v8RosterB,v8RosterA,v10CpuDifficultyB);
+    }else if(v8BattleMode==="cpu-cpu"){
+      v8SelectionA=v10AiChooseSelection(v8RosterA,v8RosterB,v10CpuDifficultyA);
+      v8SelectionB=v10AiChooseSelection(v8RosterB,v8RosterA,v10CpuDifficultyB);
+      v8SelectionView="spectator";
+    }
     v8RenderSelection(); showScreen("selection");
   }
 
@@ -5842,6 +6072,28 @@ scoreMove = function(attacker, defender, move) {
 
   function v8RenderSelection() {
     enemyPreview.innerHTML=""; playerPreview.innerHTML="";
+
+    if(v8BattleMode==="cpu-cpu"){
+      if(v8SelectionView==="chooser")v8SelectionView="spectator";
+      const full=v8SelectionView==="god";
+      const chooserButton=v8SelectionViewButtons?.querySelector?.('[data-selection-view="chooser"]');
+      chooserButton?.classList.add("hidden");
+      v8SelectionViewButtons?.querySelectorAll?.("[data-selection-view]").forEach(b=>b.classList.toggle("active",b.dataset.selectionView===v8SelectionView));
+      if(v8SelectionOperatorBanner){v8SelectionOperatorBanner.textContent=`CPU A/B 選出済み：A ${v10DifficultyLabel(v10CpuDifficultyA)} / B ${v10DifficultyLabel(v10CpuDifficultyB)}`;v8SelectionOperatorBanner.dataset.state="view";}
+      v8SelectionHeading.textContent=`③ CPU vs CPU 見せ合い（${full?"神視点":"観戦視点"}）`;
+      v8SelectionDescription.textContent=full?"両CPUの完全情報を表示しています。AI自身はこの神視点情報を参照しません。":"CPU A/Bは見せ合い6匹だけを材料に3匹を自動選出済みです。選出内容は対戦開始まで非公開です。";
+      v8PlayerPreviewTitle.textContent=`CPU Aの6匹（${v10DifficultyLabel(v10CpuDifficultyA)}）`;
+      v8EnemyPreviewTitle.textContent=`CPU Bの6匹（${v10DifficultyLabel(v10CpuDifficultyB)}）`;
+      const renderRoster=(container,roster)=>{container.classList.add("readonly");roster.forEach(set=>{const c=document.createElement("div");c.className="preview-card";c.innerHTML=v8SetCardDetail(set,!full);container.appendChild(c);});if(full)v8AttachPreviewDetails(container);};
+      renderRoster(playerPreview,v8RosterA);renderRoster(enemyPreview,v8RosterB);
+      selectionCount.textContent="CPU選出済み";
+      const startBtn=document.getElementById("start-battle-button"),clearBtn=document.getElementById("clear-selection-button"),reroll=document.getElementById("reroll-enemy-button");
+      if(startBtn){startBtn.disabled=false;startBtn.textContent="CPU同士の対戦を開始";}
+      if(clearBtn)clearBtn.disabled=true;
+      reroll?.classList.toggle("hidden",v8PartySourceB.value!=="random");
+      return;
+    }
+    v8SelectionViewButtons?.querySelector?.('[data-selection-view="chooser"]')?.classList.remove("hidden");
     const isB = v8BattleMode === "pvp" && v8SelectionStage === "B";
     const chooserSide = isB ? "enemy" : "player";
     const own = isB ? v8RosterB : v8RosterA;
@@ -5923,8 +6175,8 @@ scoreMove = function(attacker, defender, move) {
     const lines=[
       `【ニワラバトル v${V8_VERSION} 見せ合い状況コピー】`,
       `視点: ${labels[viewMode]}`,
-      `対戦形式: ${v8BattleMode==="pvp"?"2人対戦":"対CPU戦"}`,
-      `選出操作中: プレイヤー${isB?"B":"A"}`,
+      `対戦形式: ${v8BattleMode==="pvp"?"2人対戦":v8BattleMode==="cpu-cpu"?"CPU vs CPU":"対CPU戦"}`,
+      `選出操作中: ${v8BattleMode==="cpu-cpu"?"CPU A/B（自動選出済み）":`プレイヤー${isB?"B":"A"}`}`,
       "",
       "【プレイヤーAの6匹】",
       ...rosterLines("player",v8RosterA),
@@ -6212,12 +6464,14 @@ scoreMove = function(attacker, defender, move) {
   function v8LogTextForView(entry,viewMode=v8ViewMode){
     let t=v8SanitizeLogForView(entry,viewMode);
     // エンジン内部のログ文では常に「自分」= player(A)、「相手」= enemy(B)。
+    // 観戦/神/B視点では、現在モードに応じた明示ラベルへ変換する。
     if(viewMode==="B"||viewMode==="god"||viewMode==="spectator") {
-      t=t.replaceAll("相手は ","プレイヤーBは ")
-         .replaceAll("相手の場","プレイヤーBの場")
-         .replaceAll("相手の おいかぜ","プレイヤーBの おいかぜ")
-         .replaceAll("自分の場","プレイヤーAの場")
-         .replaceAll("自分の おいかぜ","プレイヤーAの おいかぜ");
+      const aLabel=v8SideLabelStatic("player"), bLabel=v8SideLabelStatic("enemy");
+      t=t.replaceAll("相手は ",`${bLabel}は `)
+         .replaceAll("相手の場",`${bLabel}の場`)
+         .replaceAll("相手の おいかぜ",`${bLabel}の おいかぜ`)
+         .replaceAll("自分の場",`${aLabel}の場`)
+         .replaceAll("自分の おいかぜ",`${aLabel}の おいかぜ`);
     }
     return t;
   }
@@ -6236,12 +6490,15 @@ scoreMove = function(attacker, defender, move) {
 
   function v8RenderViewToolbar(){
     v8ViewButtons?.querySelectorAll?.("[data-view]").forEach(b=>b.classList.toggle("active",b.dataset.view===v8ViewMode));
+    const a=v8ViewButtons?.querySelector?.('[data-view="A"]'),b=v8ViewButtons?.querySelector?.('[data-view="B"]');
+    if(a)a.textContent=v8BattleMode==="cpu-cpu"?"CPU A視点":"プレイヤーA視点";
+    if(b)b.textContent=v8BattleMode==="cpu-cpu"?"CPU B視点":v8BattleMode==="cpu"?"CPU視点":"プレイヤーB視点";
   }
 
   // ------------------------------------------------------------
   // v8.1: 見せ合い確認 / 状況＋ログ一括コピー
   // ------------------------------------------------------------
-  function v8SideLabelStatic(side){ return side==="player"?"プレイヤーA":"プレイヤーB"; }
+  function v8SideLabelStatic(side){ if(v8BattleMode==="cpu-cpu")return side==="player"?"CPU A":"CPU B";if(v8BattleMode==="cpu"&&side==="enemy")return "CPU";return side==="player"?"プレイヤーA":"プレイヤーB"; }
   function v8RosterForSide(side){ return side==="player"?v8RosterA:v8RosterB; }
 
   function v8TeamPreviewSection(side,fullInfo=false){
@@ -6394,7 +6651,9 @@ scoreMove = function(attacker, defender, move) {
     return {side,viewMode};
   }
   function v8ViewLabel(viewMode){
-    return ({A:"プレイヤーA視点",B:"プレイヤーB視点",spectator:"観戦視点",god:"神視点"})[viewMode]||viewMode;
+    if(viewMode==="A")return `${v8SideLabelStatic("player")}視点`;
+    if(viewMode==="B")return `${v8SideLabelStatic("enemy")}視点`;
+    return ({spectator:"観戦視点",god:"神視点"})[viewMode]||viewMode;
   }
   function v8BuildBattleContextText(){
     const {viewMode}=v8CopyPerspective();
@@ -6407,28 +6666,28 @@ scoreMove = function(attacker, defender, move) {
       `【ニワラバトル v${V8_VERSION} 状況コピー】`,
       `ターン: ${turnNumber}`,
       `視点: ${v8ViewLabel(viewMode)}`,
-      `対戦形式: ${v8BattleMode==="pvp"?"2人対戦":"対CPU戦"}`,
+      `対戦形式: ${v8BattleMode==="pvp"?"2人対戦":v8BattleMode==="cpu-cpu"?"CPU vs CPU":"対CPU戦"}`,
       `状態: ${battleOver?"対戦終了":"対戦中"}`,
       "",
       "【場】",
       ...v8FieldSnapshot(viewMode),
       "",
-      "【プレイヤーA・場のポケモン】",
+      `【${v8SideLabelStatic("player")}・場のポケモン】`,
       a?v8PublicPokemonText(a,"player",viewMode):"なし",
       "",
-      "【プレイヤーB・場のポケモン】",
+      `【${v8SideLabelStatic("enemy")}・場のポケモン】`,
       b?v8PublicPokemonText(b,"enemy",viewMode):"なし",
       "",
-      "【プレイヤーAの選出3匹】",
+      `【${v8SideLabelStatic("player")}の選出3匹】`,
       v8TeamStatusText("player",viewMode),
       "",
-      "【プレイヤーBの選出3匹】",
+      `【${v8SideLabelStatic("enemy")}の選出3匹】`,
       v8TeamStatusText("enemy",viewMode),
       "",
-      "【プレイヤーAの見せ合い6匹】",
+      `【${v8SideLabelStatic("player")}の見せ合い6匹】`,
       v8PreviewRosterText("player"),
       "",
-      "【プレイヤーBの見せ合い6匹】",
+      `【${v8SideLabelStatic("enemy")}の見せ合い6匹】`,
       v8PreviewRosterText("enemy"),
       "",
       "【現在選べるコマンド】",
@@ -6467,7 +6726,7 @@ scoreMove = function(attacker, defender, move) {
   let v8PassCallback=null;
   let v8ResolvingTurn=false;
 
-  function v8SideLabel(side){return side==="player"?"プレイヤーA":"プレイヤーB";}
+  function v8SideLabel(side){if(v8BattleMode==="cpu-cpu")return side==="player"?"CPU A":"CPU B";if(v8BattleMode==="cpu"&&side==="enemy")return "CPU";return side==="player"?"プレイヤーA":"プレイヤーB";}
   function v8GetTeam(side){return side==="player"?playerTeam:enemyTeam;}
   function v8GetIndex(side){return side==="player"?playerActiveIndex:enemyActiveIndex;}
   function v8SetIndex(side,i){if(side==="player")playerActiveIndex=i;else enemyActiveIndex=i;}
@@ -6571,6 +6830,10 @@ scoreMove = function(attacker, defender, move) {
   // 交代先そのものはその後に操作者が選ぶため、先に起きた相手の交代・行動を確認できる。
   const V8_autoPivot=autoPivot;
   autoPivot=function(side){
+    if(v10SideIsCpu(side)){
+      const index=v10AiChooseSwitchIndex(side,v10DifficultyForSide(side),{pivot:true});
+      return index>=0?v8PerformResolvedPivot(side,index):false;
+    }
     if(v8BattleMode==="pvp"&&v8ResolvingTurn){v8PivotRequestedSide=side;return false;}
     return V8_autoPivot(side);
   };
@@ -6657,9 +6920,60 @@ scoreMove = function(attacker, defender, move) {
     v8ShowPass(`ターン${turnNumber}：プレイヤーA`,`プレイヤーAに端末を渡してください。続けるとAだけが自分の非公開情報を見て行動を選びます。`,()=>v8BeginPhase("player"));
   }
 
+  // ------------------------------------------------------------
+  // CPU vs CPU 自動進行
+  // ------------------------------------------------------------
+  let v10CpuCpuPaused=false;
+  let v10CpuCpuTimer=null;
+  function v10StopCpuCpuLoop(){if(v10CpuCpuTimer){clearTimeout(v10CpuCpuTimer);v10CpuCpuTimer=null;}}
+  function v10RenderCpuCpuControls(){
+    const active=v8BattleMode==="cpu-cpu";
+    v10CpuCpuControls?.classList.toggle("hidden",!active);
+    if(!active)return;
+    const done=battleOver;
+    if(v10CpuCpuStatus)v10CpuCpuStatus.textContent=done?"対戦終了":v10CpuCpuPaused?"一時停止中":`自動進行中（A ${v10DifficultyLabel(v10CpuDifficultyA)} / B ${v10DifficultyLabel(v10CpuDifficultyB)}）`;
+    if(v10CpuCpuToggle){v10CpuCpuToggle.textContent=v10CpuCpuPaused?"再開":"一時停止";v10CpuCpuToggle.disabled=done;}
+    if(v10CpuCpuStep)v10CpuCpuStep.disabled=done||!v10CpuCpuPaused;
+  }
+  function v10ScheduleCpuCpuTurn(delay=null){
+    v10StopCpuCpuLoop();
+    if(v8BattleMode!=="cpu-cpu"||battleOver||v10CpuCpuPaused)return;
+    const ms=delay??Number(v10CpuCpuSpeed?.value||650);
+    v10CpuCpuTimer=setTimeout(()=>{v10CpuCpuTimer=null;v10RunCpuCpuTurn(false);},Math.max(80,ms));
+  }
+  function v10RunCpuCpuTurn(stepOnly=false){
+    if(v8BattleMode!=="cpu-cpu"||battleOver||v8ResolvingTurn)return;
+    if(awaitingPlayerSwitch){awaitingPlayerSwitch=false;}
+    const a=v10AiChooseAction("player",v10CpuDifficultyA);
+    const b=v10AiChooseAction("enemy",v10CpuDifficultyB);
+    v8PendingActions={player:a,enemy:b};
+    v8ResolvePvpTurn();
+    v8ViewMode=v8ViewMode||"spectator";
+    renderAll();
+    if(!stepOnly&&!battleOver&&!v10CpuCpuPaused)v10ScheduleCpuCpuTurn();
+  }
+  function v10CpuCpuReplacement(side){
+    return v10AiChooseSwitchIndex(side,v10DifficultyForSide(side),{replacement:true});
+  }
+  function v10ResolveCpuCpuFaints(){
+    const faint=[];if(getPlayerPokemon()?.hp<=0)faint.push("player");if(getEnemyPokemon()?.hp<=0)faint.push("enemy");
+    if(!faint.length){renderAll();return;}
+    faint.forEach(side=>{const p=v8Active(side);if(p&&!p.v8FaintLogged){p.v8FaintLogged=true;addLog(`${p.name}は たおれた！`,"log-system");}});
+    const alive=side=>v8GetTeam(side).some(p=>p.hp>0),aa=alive("player"),bb=alive("enemy");
+    if(!aa||!bb){battleOver=true;awaitingPlayerSwitch=false;v10StopCpuCpuLoop();addLog(!aa&&!bb?"両CPUのポケモンがすべて倒れた！":`${aa?"CPU A":"CPU B"}の勝ち！`,"log-system");renderAll();return;}
+    const incoming=[];
+    faint.forEach(side=>{if(!alive(side))return;const idx=v10CpuCpuReplacement(side);if(idx<0)return;v8SetIndex(side,idx);const p=v8Active(side);resetOnSwitch(p);p.v8FaintLogged=false;incoming.push({side,p});});
+    incoming.sort((x,y)=>{const sx=getModifiedStat(x.p,"speed"),sy=getModifiedStat(y.p,"speed");return fieldState.trickRoom>0?sx-sy:sy-sx;});
+    incoming.forEach(({side,p})=>{addLog(`${side==="player"?"CPU A":"CPU B"}は ${p.name}を くりだした！`,"log-system");activateEntryAbility(p);});
+    awaitingPlayerSwitch=false;
+    if(getPlayerPokemon()?.hp<=0||getEnemyPokemon()?.hp<=0){v10ResolveCpuCpuFaints();return;}
+    renderAll();
+  }
+
   // 2人対戦のひんし交代は双方とも手動。両落ちなら両者が秘密裏に選んでから同時に公開。
   const V8_resolveFaints=resolveFaints;
   resolveFaints=function(){
+    if(v8BattleMode==="cpu-cpu")return v10ResolveCpuCpuFaints();
     if(v8BattleMode!=="pvp")return V8_resolveFaints();
     const faint=[];if(getPlayerPokemon()?.hp<=0)faint.push("player");if(getEnemyPokemon()?.hp<=0)faint.push("enemy");if(!faint.length){renderAll();return;}
     faint.forEach(side=>{const p=v8Active(side);if(p&&!p.v8FaintLogged){p.v8FaintLogged=true;addLog(`${p.name}は たおれた！`,"log-system");}});
@@ -6682,7 +6996,8 @@ scoreMove = function(attacker, defender, move) {
   function v8RenderOperatorBanner(){
     if(!v8BattleOperatorBanner)return;
     if(battleOver){v8BattleOperatorBanner.textContent="対戦終了：各視点に切り替えて状況＋ログをコピーできます";v8BattleOperatorBanner.dataset.state="done";return;}
-    if(v8BattleMode!=="pvp"){v8BattleOperatorBanner.textContent="操作中：プレイヤーA（CPU戦）";v8BattleOperatorBanner.dataset.state="A";return;}
+    if(v8BattleMode==="cpu-cpu"){v8BattleOperatorBanner.textContent=v10CpuCpuPaused?"CPU vs CPU：一時停止中":"CPU vs CPU：自動対戦中";v8BattleOperatorBanner.dataset.state="view";return;}
+    if(v8BattleMode!=="pvp"){v8BattleOperatorBanner.textContent=`操作中：プレイヤーA（CPU ${v10DifficultyLabel(v10CpuDifficultyB)}）`;v8BattleOperatorBanner.dataset.state="A";return;}
     if(v8ResolvingTurn){v8BattleOperatorBanner.textContent="両者の行動を解決中";v8BattleOperatorBanner.dataset.state="view";return;}
     if(v8ReplacementState?.choosingSide){const side=v8ReplacementState.choosingSide;v8BattleOperatorBanner.textContent=`交代先を選択中：${v8SideLabel(side)}`;v8BattleOperatorBanner.dataset.state=side==="player"?"A":"B";return;}
     const side=v8ControlSide();
@@ -6692,6 +7007,7 @@ scoreMove = function(attacker, defender, move) {
   function v8RenderMoves(){
     moveContainer.innerHTML="";
     if(battleOver||awaitingPlayerSwitch||v8ReplacementState)return;
+    if(v8BattleMode==="cpu-cpu"){v8CommandOwnerText.textContent="CPUが自動で行動を選択";const n=document.createElement("div");n.className="locked-action-note";n.textContent="AIは各自が知り得る公開情報だけで判断しています。上のCPU vs CPU操作から一時停止・1ターン進行ができます。";moveContainer.appendChild(n);return;}
     if(v8BattleMode!=="pvp"){
       const p=getPlayerPokemon(),foe=getEnemyPokemon();v8CommandOwnerText.textContent="たたかう（プレイヤーA）";
       const usable=getSelectableMoves(p),list=usable.length? (p.chargingMoveId||p.rampageMoveId?usable:p.moves) : [{...STRUGGLE_MOVE}];
@@ -6704,7 +7020,9 @@ scoreMove = function(attacker, defender, move) {
     list.forEach(move=>{const eff=getEffectiveMove(p,move),b=document.createElement("button");b.className="move-button";const effect=eff.category==="status"?"変化技":getEffectivenessText(getTypeEffectivenessV5(p,foe,eff));b.innerHTML=`<span class="move-name">${eff.name}</span><span class="move-info">${eff.type} / ${getCategoryText(eff.category)}<br>威力 ${eff.power??"-"}　命中 ${eff.accuracy??"-"}</span><span class="pp-line">${eff.struggle?"PP ∞":`PP ${move.pp}/${move.maxPP}`}</span><span class="effectiveness">${effect}</span>`;b.disabled=!eff.struggle&&(move.pp<=0||!isMoveAllowedByItem(p,move));b.addEventListener("click",()=>v8SelectMove(side,move));moveContainer.appendChild(b);});
   }
   function v8RenderSwitch(){
-    switchContainer.innerHTML="";let side=v8BattleMode==="pvp"?v8ControlSide():"player";const team=v8GetTeam(side),active=v8GetIndex(side);const pivot=Boolean(v8PivotChoicePending);const replacement=Boolean(v8ReplacementState);
+    switchContainer.innerHTML="";
+    if(v8BattleMode==="cpu-cpu"){const n=document.createElement("div");n.className="locked-action-note";n.textContent="交代・ひんし時の次ポケモン・交代技の交代先もCPUが自動判断します。";switchContainer.appendChild(n);return;}
+    let side=v8BattleMode==="pvp"?v8ControlSide():"player";const team=v8GetTeam(side),active=v8GetIndex(side);const pivot=Boolean(v8PivotChoicePending);const replacement=Boolean(v8ReplacementState);
     const trapped=!replacement&&!pivot&&isTrappedByOpponent(v8Active(side),v8Active(v8Other(side)));
     team.forEach((p,i)=>{const b=document.createElement("button");b.className="switch-button";b.textContent=`${p.name}　${p.hp}/${p.maxHP}`;b.disabled=p.hp<=0||i===active||(trapped&&!pivot)||battleOver;b.addEventListener("click",()=>{if(replacement)v8ChooseReplacement(side,i);else if(pivot)v8SelectPivot(i);else if(v8BattleMode==="pvp")v8SelectSwitch(side,i);else playerSwitch(i);});switchContainer.appendChild(b);});
   }
@@ -6718,19 +7036,32 @@ scoreMove = function(attacker, defender, move) {
     v8RenderOneBattleCard(top,topSide,"top");v8RenderOneBattleCard(bottom,bottomSide,"bottom");
     v8TopTeamHeading.textContent=`${v8SideLabel(topSide)}チーム`;v8BottomTeamHeading.textContent=`${v8SideLabel(bottomSide)}チーム`;
     v8TeamChipRender(v8GetTeam(topSide),v8GetIndex(topSide),enemyTeamStatus,topSide);v8TeamChipRender(v8GetTeam(bottomSide),v8GetIndex(bottomSide),playerTeamStatus,bottomSide);
-    v8RenderMoves();v8RenderSwitch();v8RenderLog();v8RenderViewToolbar();v8RenderUtilityButtons();
+    v8RenderMoves();v8RenderSwitch();v8RenderLog();v8RenderViewToolbar();v8RenderUtilityButtons();v10RenderCpuCpuControls();
   };
 
   // ------------------------------------------------------------
   // バトル開始
   // ------------------------------------------------------------
   function v8StartBattle(){
-    const selB=v8BattleMode==="cpu"?v8ChooseCpuSelection(v8RosterB,v8RosterA):v8SelectionB;if(v8SelectionA.length!==3||selB.length!==3)return;
+    if(v8BattleMode==="cpu"&&v8SelectionB.length!==3)v8SelectionB=v10AiChooseSelection(v8RosterB,v8RosterA,v10CpuDifficultyB);
+    if(v8BattleMode==="cpu-cpu"){
+      if(v8SelectionA.length!==3)v8SelectionA=v10AiChooseSelection(v8RosterA,v8RosterB,v10CpuDifficultyA);
+      if(v8SelectionB.length!==3)v8SelectionB=v10AiChooseSelection(v8RosterB,v8RosterA,v10CpuDifficultyB);
+    }
+    const selB=v8SelectionB;if(v8SelectionA.length!==3||selB.length!==3)return;
+    v10StopCpuCpuLoop();v10CpuCpuPaused=false;
     playerTeam=v8SelectionA.map(i=>createPokemon(v8RosterA[i],i));enemyTeam=selB.map(i=>createPokemon(v8RosterB[i],i));playerTeam.forEach(p=>p.side="player");enemyTeam.forEach(p=>p.side="enemy");
     playerActiveIndex=0;enemyActiveIndex=0;awaitingPlayerSwitch=false;battleOver=false;turnNumber=1;battleLog=[];weather={type:null,turns:0};fieldState={trickRoom:0,tailwind:{player:0,enemy:0}};if(typeof v6EnsureFieldState==="function"){fieldState.v6=null;v6EnsureFieldState();}
     v8WeatherMeta={sourceSide:null,sourcePokemon:null,extended:false};v8TerrainMeta={sourceSide:null,sourcePokemon:null,extended:false};v8ScreenMeta={player:{reflect:null,lightScreen:null},enemy:{reflect:null,lightScreen:null}};v8PendingActions={player:null,enemy:null};v8ReplacementState=null;v8PivotChoicePending=null;
-    showScreen("battle");addLog("ポケモンバトルを開始！","log-system");addLog(`相手は ${getEnemyPokemon().name}を くりだした！`,"log-system");activateEntryAbility(getEnemyPokemon());addLog(`${getPlayerPokemon().name}！ キミにきめた！`,"log-system");activateEntryAbility(getPlayerPokemon());
-    if(v8BattleMode==="pvp"){v8ViewMode="spectator";renderAll();v8PrepareNextPvpTurn();}else{v8ViewMode="A";renderAll();}
+    showScreen("battle");addLog("ポケモンバトルを開始！","log-system");
+    if(v8BattleMode==="cpu-cpu"){
+      addLog(`CPU Bは ${getEnemyPokemon().name}を くりだした！`,"log-system");activateEntryAbility(getEnemyPokemon());
+      addLog(`CPU Aは ${getPlayerPokemon().name}を くりだした！`,"log-system");activateEntryAbility(getPlayerPokemon());
+      v8ViewMode="spectator";renderAll();v10ScheduleCpuCpuTurn(850);
+    }else{
+      addLog(`相手は ${getEnemyPokemon().name}を くりだした！`,"log-system");activateEntryAbility(getEnemyPokemon());addLog(`${getPlayerPokemon().name}！ キミにきめた！`,"log-system");activateEntryAbility(getPlayerPokemon());
+      if(v8BattleMode==="pvp"){v8ViewMode="spectator";renderAll();v8PrepareNextPvpTurn();}else{v8ViewMode="A";renderAll();}
+    }
   }
 
   // ------------------------------------------------------------
@@ -6760,13 +7091,18 @@ scoreMove = function(attacker, defender, move) {
   v8Random?.addEventListener("click",()=>{builderSets=v8BuildStrongRandomTeam();renderBuilder();setBuilderMessage("役割・火力・素早さ・弱点の重なりを評価して、強めのランダム構築を生成しました。",false);});
   v8SaveQuick?.addEventListener("click",()=>v8SavedPartySelect?.value?v8OverwriteParty():v8SaveNewParty());
   v8ModeBackButton?.addEventListener("click",()=>showScreen("builder"));
-  v8BattleModeSelect?.addEventListener("change",v8RenderBattleSourceOptions);
+  v8BattleModeSelect?.addEventListener("change",()=>{v10StopCpuCpuLoop();v8RenderBattleSourceOptions();});
   v8ModeContinueButton?.addEventListener("click",v8StartSelectionSetup);
   v8SelectionViewButtons?.addEventListener("click",e=>{const b=e.target.closest?.("[data-selection-view]");if(!b)return;v8SelectionView=b.dataset.selectionView;v8RenderSelection();});
   v8CopySelectionContextButton?.addEventListener("click",v8CopySelectionContext);
   v8Clear?.addEventListener("click",()=>{if(v8SelectionStage==="A")v8SelectionA=[];else v8SelectionB=[];v8RenderSelection();});
   v8Back?.addEventListener("click",()=>showScreen("mode"));
-  v8Reroll?.addEventListener("click",()=>{if(v8BattleMode!=="cpu")return;v8RosterB=v8BuildStrongRandomTeam();v8RenderSelection();});
+  v8Reroll?.addEventListener("click",()=>{
+    if(v8BattleMode!=="cpu"&&v8BattleMode!=="cpu-cpu")return;
+    if(v8PartySourceB.value==="random")v8RosterB=v10BuildCpuTeam(v10CpuDifficultyB);
+    if(v8BattleMode==="cpu-cpu"){if(v8PartySourceA.value==="random")v8RosterA=v10BuildCpuTeam(v10CpuDifficultyA);v8SelectionA=v10AiChooseSelection(v8RosterA,v8RosterB,v10CpuDifficultyA);}
+    v8SelectionB=v10AiChooseSelection(v8RosterB,v8RosterA,v10CpuDifficultyB);v8RenderSelection();
+  });
   v8Start?.addEventListener("click",()=>{
     if(v8BattleMode==="pvp"&&v8SelectionStage==="A"){
       if(v8SelectionA.length!==3)return;v8ShowPass("プレイヤーBに端末を渡してください","Aの選出は確定しました。選出順をBに見せないようにしてから続けてください。",()=>{v8SelectionStage="B";v8SelectionB=[];v8SelectionView="chooser";v8RenderSelection();});return;
@@ -6774,6 +7110,9 @@ scoreMove = function(attacker, defender, move) {
     v8StartBattle();
   });
   v8PassContinueButton?.addEventListener("click",()=>{const cb=v8PassCallback;v8PassCallback=null;v8HidePass();if(cb)cb();});
+  v10CpuCpuToggle?.addEventListener("click",()=>{if(v8BattleMode!=="cpu-cpu"||battleOver)return;v10CpuCpuPaused=!v10CpuCpuPaused;if(v10CpuCpuPaused)v10StopCpuCpuLoop();else v10ScheduleCpuCpuTurn(120);renderAll();});
+  v10CpuCpuStep?.addEventListener("click",()=>{if(v8BattleMode==="cpu-cpu"&&v10CpuCpuPaused&&!battleOver)v10RunCpuCpuTurn(true);});
+  v10CpuCpuSpeed?.addEventListener("change",()=>{if(v8BattleMode==="cpu-cpu"&&!v10CpuCpuPaused&&!battleOver)v10ScheduleCpuCpuTurn(100);});
   v8TeamPreviewButton?.addEventListener("click",v8OpenTeamPreview);
   v8TeamPreviewClose?.addEventListener("click",v8CloseTeamPreview);
   v8TeamPreviewModal?.querySelector?.("[data-close-team-preview]")?.addEventListener("click",v8CloseTeamPreview);
@@ -6782,8 +7121,8 @@ scoreMove = function(attacker, defender, move) {
   v8BenchStatusModal?.querySelector?.("[data-close-bench-status]")?.addEventListener("click",v8CloseBenchStatus);
   v8CopyContextButton?.addEventListener("click",v8CopyBattleContext);
   v8ViewButtons?.addEventListener("click",e=>{const b=e.target.closest?.("[data-view]");if(!b)return;v8ViewMode=b.dataset.view;renderAll();});
-  v8Forfeit?.addEventListener("click",()=>{battleOver=true;v8ReplacementState=null;awaitingPlayerSwitch=false;v8HidePass();showScreen("mode");});
-  goBuilderButton.onclick=()=>{v8HidePass();v8CloseTeamPreview();v8CloseBenchStatus();showScreen("builder");};
+  v8Forfeit?.addEventListener("click",()=>{v10StopCpuCpuLoop();battleOver=true;v8ReplacementState=null;awaitingPlayerSwitch=false;v8HidePass();showScreen("mode");});
+  goBuilderButton.onclick=()=>{v10StopCpuCpuLoop();v8HidePass();v8CloseTeamPreview();v8CloseBenchStatus();showScreen("builder");};
   document.addEventListener("keydown",e=>{if(e.key==="Escape"){v8CloseTeamPreview();v8CloseBenchStatus();}});
 
   // v10: 初期化はbase側の確認に同意した場合だけ、保存ライブラリまで削除する。
@@ -6808,7 +7147,14 @@ scoreMove = function(attacker, defender, move) {
     _debugStartPvp(a=v8CloneSets(builderSets),b=v8BuildStrongRandomTeam()){v8BattleMode="pvp";v8RosterA=v8CloneSets(a);v8RosterB=v8CloneSets(b);v8SelectionA=[0,1,2];v8SelectionB=[0,1,2];v8StartBattle();return{a:playerTeam.length,b:enemyTeam.length,turn:turnNumber};},
     _debugPvpTurn(aMoveId=null,bMoveId=null){const A=getPlayerPokemon(),B=getEnemyPokemon();const am=A.moves.find(m=>m.id===aMoveId)||getSelectableMoves(A)[0]||{...STRUGGLE_MOVE};const bm=B.moves.find(m=>m.id===bMoveId)||getSelectableMoves(B)[0]||{...STRUGGLE_MOVE};v8PendingActions={player:{type:"move",move:am},enemy:{type:"move",move:bm}};v8ResolvePvpTurn();return{turn:turnNumber,aHP:getPlayerPokemon()?.hp,bHP:getEnemyPokemon()?.hp,awaitingPlayerSwitch,battleOver};},
     _debugPvpActions(a,b){v8PendingActions={player:a,enemy:b};v8ResolvePvpTurn();return{turn:turnNumber,aHP:getPlayerPokemon()?.hp,bHP:getEnemyPokemon()?.hp,awaitingPlayerSwitch,battleOver};},
-    _debugState(){return{mode:v8BattleMode,view:v8ViewMode,phase:v8ActionPhase,awaitingPlayerSwitch,battleOver,turnNumber,a:getPlayerPokemon()?.name,b:getEnemyPokemon()?.name};}
+    _debugState(){return{mode:v8BattleMode,view:v8ViewMode,phase:v8ActionPhase,awaitingPlayerSwitch,battleOver,turnNumber,a:getPlayerPokemon()?.name,b:getEnemyPokemon()?.name};},
+    ai:Object.freeze({
+      levels:Object.freeze(Object.keys(V10_AI_LEVELS)),
+      buildTeam:d=>v10BuildCpuTeam(d),
+      publicOpponent:side=>v10AiPublicOpponent(side),
+      chooseSelection:(roster,opponentRoster,d)=>v10AiChooseSelection(roster,opponentRoster,d),
+      chooseAction:(side,d)=>v10AiChooseAction(side,d||v10DifficultyForSide(side))
+    })
   };
 })();
 ;/* ===== utility tools ===== */
@@ -7044,7 +7390,7 @@ scoreMove = function(attacker, defender, move) {
       const ctx=window.__PBV8GetDamageBattleContext?.();if(!ctx?.player||!ctx?.enemy)throw new Error("対戦中の公開情報を取得できません");
       loadedBattleSnapshots={atk:null,def:null};
       setSideFromSnapshot("atk",ctx.player);setSideFromSnapshot("def",ctx.enemy);syncLoadedStagesToMove();
-      const perspective=ctx.privateSide==="player"?"プレイヤーA":ctx.privateSide==="enemy"?"プレイヤーB":"公開視点";
+      const perspective=ctx.privateSide==="player"?v8SideLabelStatic("player"):ctx.privateSide==="enemy"?v8SideLabelStatic("enemy"):"公開視点";
       damageResult.textContent=`現在の対面を${perspective}基準で読み込みました。相手の非公開情報は読み込んでいません。必要な非公開項目は仮定して選択してください。`;
     }catch(e){console.warn(e);damageResult.textContent="対戦中の公開情報を取得できません。編成画面では手動で条件を指定してください。";}
   }
@@ -7144,7 +7490,7 @@ scoreMove = function(attacker, defender, move) {
       let target,chaser;
       if(ctx.privateSide==="enemy"){target=ctx.player;chaser=ctx.enemy;}else{target=ctx.enemy;chaser=ctx.player;}
       speedSetSnapshot("target",target);speedSetSnapshot("chaser",chaser);
-      const perspective=ctx.privateSide==="player"?"プレイヤーA":ctx.privateSide==="enemy"?"プレイヤーB":"公開視点";
+      const perspective=ctx.privateSide==="player"?v8SideLabelStatic("player"):ctx.privateSide==="enemy"?v8SideLabelStatic("enemy"):"公開視点";
       speedResult.textContent=`現在の対面を${perspective}基準で読み込みました。相手側の非公開情報は読み込んでいません。空欄は仮定して入力してください。`;
     }catch(e){console.warn(e);speedResult.textContent="対戦中の公開情報を取得できません。手動で条件を指定してください。";}
   }
