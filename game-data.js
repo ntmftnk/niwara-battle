@@ -4043,9 +4043,10 @@ Object.assign(MOVE_DEX, {
     "power": null,
     "accuracy": 100,
     "priority": 0,
-    "maxPP": 8,
-    "description": "3ターン、相手に最後に使った技を繰り返させる。",
-    "encoreTurns": 3
+    "maxPP": 5,
+    "description": "3ターン、相手に最後に使った技を繰り返させる。みがわりを無視する。",
+    "encoreTurns": 3,
+    "ignoreSubstitute": true
   },
   "v6-074": {
     "id": "v6-074",
@@ -4818,7 +4819,7 @@ Object.assign(MOVE_DEX, {
     "accuracy": 100,
     "priority": 1,
     "maxPP": 8,
-    "description": "相手が攻撃技を選んでいる時だけ成功する。",
+    "description": "相手が攻撃技を選び、まだそのターンに行動していない時だけ成功する。",
     "contact": true,
     "suckerPunch": true
   },

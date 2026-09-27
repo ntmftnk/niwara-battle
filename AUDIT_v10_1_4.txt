@@ -1,0 +1,41 @@
+ニワラバトル v10.1.4 監査メモ
+===============================
+
+対象: v10.1.3 -> v10.1.4
+
+[ふいうち]
+OK: 条件判定に defender.hasActedThisTurn を追加。
+OK: 選択技が変化技/未選択なら失敗。
+OK: 条件失敗前に「最後に使った技」として記録される。
+OK: window.__v6SelectedMoves の元の選択技を成否判定に使用。
+
+[アンコール]
+OK: maxPP 5。
+OK: ignoreSubstitute=true。
+OK: 既にアンコール中は失敗。
+OK: 対象技PP0は失敗。
+OK: アンコール/ねごと/わるあがき等を除外。
+OK: 同ターンに受けた場合は最外層から実行技をアンコール対象へ差し替え（旧ラッパー経路も統一）。
+OK: 対象技PP0時にアンコールを即終了。
+OK: 後攻アンコール時は付与ターンで残りターンを減らさず、次ターンから3ターン維持。
+OK: ねごと呼び出し技のPPを復元し lastMove をねごとへ戻す。
+
+[プレイヤーA 強化ランダム]
+OK: player-a-party-source に random 選択肢を全モードで追加。
+OK: 非CPU-vs-CPUでは very-strong 構築基準を固定使用。
+OK: 生成後は通常どおりプレイヤーAが6→3選出可能。
+
+[同時ひんし]
+OK: CPU戦 base resolveFaints をチーム全体生存判定へ変更。
+OK: PVP/CPU-vs-CPU の双方全滅判定をひんし順序へ対応。
+OK: move / residual / delayed end turn / entry hazard のHP0遷移を記録。
+OK: 自爆/いのちがけと通常反動を異なる順序で記録。
+OK: CPU戦の双方控えあり同時ひんしはCPU交代先を非公開保持。
+OK: 交代時設置技KO後に resolveFaints を再実行。
+OK: ターン終了効果は現在S順。同速時のA側固定を廃止して抽選。
+OK: みらいよち着弾KOはHP0になった瞬間にひんし順序を記録。
+
+[静的チェック]
+- node --check: app-config.js / game-data.js / game.js / pwa.js / sw.js
+- HTML script参照: app-config.js / game-data.js / game.js / pwa.js
+- PWA APP_VERSION source: app-config.js 10.1.4

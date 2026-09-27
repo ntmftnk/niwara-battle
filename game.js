@@ -703,6 +703,57 @@ const STRUGGLE_MOVE = {
   struggle: true
 };
 
+// ============================================================
+// v10.1.4 共通ひんし順序トラッカー
+// Champions系の「最後にひんしになった側が残る」判定に使う。
+// 実際のHP減少が発生した順序を記録し、両者の最後の1匹が同じ処理中に
+// 0になった場合も、反動・自爆・残ターン処理の順序を勝敗へ反映する。
+// ============================================================
+let v1014FaintSerial = 0;
+let v1014PendingCpuDoubleReplacement = null;
+
+function v1014MarkFaint(pokemon, reason = "") {
+  if (!pokemon || pokemon.hp > 0 || pokemon.v1014FaintOrder) return;
+  pokemon.v1014FaintOrder = ++v1014FaintSerial;
+  pokemon.v1014FaintReason = reason || "unknown";
+}
+
+function v1014LogFaintOnce(pokemon) {
+  if (!pokemon || pokemon.hp > 0 || pokemon.v8FaintLogged) return;
+  pokemon.v8FaintLogged = true;
+  addLog(`${pokemon.name}は たおれた！`, "log-system");
+}
+
+function v1014SideHasPokemon(side) {
+  const team = side === "player" ? playerTeam : enemyTeam;
+  return team.some(p => p.hp > 0);
+}
+
+function v1014LastFaintOrder(side) {
+  const team = side === "player" ? playerTeam : enemyTeam;
+  return Math.max(0, ...team.map(p => Number(p.v1014FaintOrder || 0)));
+}
+
+function v1014WinnerWhenBothOut() {
+  const playerOrder = v1014LastFaintOrder("player");
+  const enemyOrder = v1014LastFaintOrder("enemy");
+  if (playerOrder && enemyOrder && playerOrder !== enemyOrder) {
+    // 最後に倒れた側が勝者。
+    return playerOrder > enemyOrder ? "player" : "enemy";
+  }
+  return null;
+}
+
+function v1014ResetFaintTrackingForBattle() {
+  v1014FaintSerial = 0;
+  v1014PendingCpuDoubleReplacement = null;
+  [...playerTeam, ...enemyTeam].forEach(p => {
+    delete p.v1014FaintOrder;
+    delete p.v1014FaintReason;
+    p.v8FaintLogged = false;
+  });
+}
+
 function getPlayerPokemon() { return playerTeam[playerActiveIndex]; }
 function getEnemyPokemon() { return enemyTeam[enemyActiveIndex]; }
 
@@ -907,9 +958,59 @@ function chooseEnemyReplacement() {
 function resolveFaints() {
   const enemy = getEnemyPokemon();
   const player = getPlayerPokemon();
+  const enemyFainted = Boolean(enemy && enemy.hp <= 0);
+  const playerFainted = Boolean(player && player.hp <= 0);
 
-  if (enemy.hp <= 0) {
-    addLog(`${enemy.name}は たおれた！`);
+  if (!enemyFainted && !playerFainted) {
+    renderAll();
+    return;
+  }
+
+  if (enemyFainted) { v1014MarkFaint(enemy, "resolve"); v1014LogFaintOnce(enemy); }
+  if (playerFainted) { v1014MarkFaint(player, "resolve"); v1014LogFaintOnce(player); }
+
+  const playerAlive = v1014SideHasPokemon("player");
+  const enemyAlive = v1014SideHasPokemon("enemy");
+
+  // まずチーム全体の生存数で勝敗を決める。片側アクティブを先に処理して
+  // 「両方最後の1匹なのに先にenemyを見て勝ち」などの陣営依存を起こさない。
+  if (!playerAlive || !enemyAlive) {
+    battleOver = true;
+    awaitingPlayerSwitch = false;
+    v1014PendingCpuDoubleReplacement = null;
+
+    if (!playerAlive && !enemyAlive) {
+      const winner = v1014WinnerWhenBothOut();
+      if (winner === "player") addLog("あなたの勝ち！", "log-system");
+      else if (winner === "enemy") addLog("あなたの負け……", "log-system");
+      else addLog("両者の最後のポケモンが倒れたため 引き分け！", "log-system");
+    } else if (playerAlive) {
+      addLog("あなたの勝ち！", "log-system");
+    } else {
+      addLog("あなたの負け……", "log-system");
+    }
+    renderAll();
+    return;
+  }
+
+  // CPU戦で両アクティブが同時に倒れた場合、CPUの交代先を先に内部決定するが、
+  // プレイヤーが次ポケモンを選ぶまで公開しない。選択後に双方を同時に場へ出す。
+  if (enemyFainted && playerFainted) {
+    const next = chooseEnemyReplacement();
+    if (next < 0) {
+      battleOver = true;
+      addLog("あなたの勝ち！", "log-system");
+      renderAll();
+      return;
+    }
+    v1014PendingCpuDoubleReplacement = next;
+    awaitingPlayerSwitch = true;
+    addLog("両者のポケモンが倒れた！ 次に出すポケモンを選んでください。", "log-system");
+    renderAll();
+    return;
+  }
+
+  if (enemyFainted) {
     const next = chooseEnemyReplacement();
     if (next === -1) {
       battleOver = true;
@@ -918,17 +1019,14 @@ function resolveFaints() {
       return;
     }
     enemySwitch(next, false);
-  }
-
-  if (player.hp <= 0) {
-    addLog(`${player.name}は たおれた！`);
-    const remaining = healthyIndices(playerTeam).filter(entry => entry.index !== playerActiveIndex);
-    if (remaining.length === 0) {
-      battleOver = true;
-      addLog("あなたの負け……", "log-system");
-      renderAll();
+    // 設置技などで交代直後に倒れた場合も連続して判定する。
+    if (getEnemyPokemon()?.hp <= 0) {
+      resolveFaints();
       return;
     }
+  }
+
+  if (playerFainted) {
     awaitingPlayerSwitch = true;
     addLog("次に出すポケモンを選んでください。", "log-system");
   }
@@ -1457,7 +1555,7 @@ function useMove(attacker, defender, originalMove) {
     if (!isMoveAllowedByItem(attacker, move)) return [`${attacker.name}は 持ち物の効果で ${move.name}を選べない！`];
     move.pp--;
     // 元の技オブジェクトにもPP減少を反映
-    const original = attacker.moves.find(m => m.id === originalMove.id);
+    const original = attacker.moves.find(m => m.id === actualOriginalMove.id);
     if (original) original.pp = move.pp;
   }
 
@@ -1835,7 +1933,12 @@ function processResidualForPokemon(pokemon) {
 
 function endTurn() {
   const active = [getPlayerPokemon(), getEnemyPokemon()].filter(p => p.hp > 0);
-  active.sort((a, b) => getModifiedStat(b, "speed") - getModifiedStat(a, "speed"));
+  // ターン終了効果は現在の素早さ順。同速時に常にA側先行にならないよう、そのターンだけ抽選する。
+  const endTurnTie = new Map(active.map(p => [p, Math.random()]));
+  active.sort((a, b) => {
+    const diff = getModifiedStat(b, "speed") - getModifiedStat(a, "speed");
+    return diff || (endTurnTie.get(a) - endTurnTie.get(b));
+  });
   active.forEach(processResidualForPokemon);
 
   [...playerTeam, ...enemyTeam].forEach(p => {
@@ -1994,6 +2097,7 @@ function playerSwitch(newIndex) {
     addLog(`${getPlayerPokemon().name}！ キミにきめた！`, "log-system");
     activateEntryAbility(getPlayerPokemon());
     renderAll();
+    if (getPlayerPokemon()?.hp <= 0) resolveFaints();
     return;
   }
 
@@ -2470,6 +2574,7 @@ createPokemon = function(set, rosterIndex = 0) {
   pokemon.tauntTurns = 0;
   pokemon.encoreTurns = 0;
   pokemon.encoreMoveId = null;
+  pokemon.encoreSkipEndTurn = false;
   pokemon.disableTurns = 0;
   pokemon.disabledMoveId = null;
   pokemon.substituteHP = 0;
@@ -2515,6 +2620,7 @@ function v6ClearVolatile(pokemon) {
   pokemon.tauntTurns = 0;
   pokemon.encoreTurns = 0;
   pokemon.encoreMoveId = null;
+  pokemon.encoreSkipEndTurn = false;
   pokemon.disableTurns = 0;
   pokemon.disabledMoveId = null;
   pokemon.substituteHP = 0;
@@ -2561,7 +2667,17 @@ isTrappedByOpponent = function(pokemon, foe) {
 
 function v6MoveBlockedByVolatile(pokemon, move) {
   if (pokemon.tauntTurns > 0 && move.category === "status") return true;
-  if (pokemon.encoreTurns > 0 && pokemon.encoreMoveId && move.id !== pokemon.encoreMoveId) return true;
+  if (pokemon.encoreTurns > 0 && pokemon.encoreMoveId) {
+    const encored = pokemon.moves.find(m => m.id === pokemon.encoreMoveId);
+    // Champions: アンコール対象技のPPが0になった時点で効果は即終了。
+    if (!encored || encored.pp <= 0) {
+      pokemon.encoreTurns = 0;
+      pokemon.encoreMoveId = null;
+      pokemon.encoreSkipEndTurn = false;
+    } else if (move.id !== pokemon.encoreMoveId) {
+      return true;
+    }
+  }
   if (pokemon.disableTurns > 0 && pokemon.disabledMoveId === move.id) return true;
   const foe = pokemon.side ? getActivePokemonBySide(getOpponentSide(pokemon.side)) : null;
   if (foe?.imprison && foe.moves.some(m => m.id === move.id)) return true;
@@ -2848,6 +2964,7 @@ function v6ConsumeMentalHerb(pokemon) {
   pokemon.tauntTurns = 0;
   pokemon.encoreTurns = 0;
   pokemon.encoreMoveId = null;
+  pokemon.encoreSkipEndTurn = false;
   pokemon.disableTurns = 0;
   pokemon.disabledMoveId = null;
   pokemon.usedMentalHerb = true;
@@ -3023,13 +3140,48 @@ function v62ApplyMaxHPRecoil(attacker, move, logs) {
   logs.push(`${attacker.name}は 反動で ${recoil} ダメージ！`);
 }
 
+// Champions準拠：技が実際に「使用された」時点で最後に使った技として記録する。
+// 命中失敗・まもる・ふいうち条件失敗など、技そのものを使って失敗した場合も含む。
+// まひ/ねむり等で行動そのものができなかった場合は記録しない。
+function v1014RecordLastUsedMove(pokemon, move) {
+  if (!pokemon || !move) return;
+  if (pokemon.lastMoveId === move.id) pokemon.sameMoveCount = (pokemon.sameMoveCount || 0) + 1;
+  else pokemon.sameMoveCount = 1;
+  pokemon.lastMoveId = move.id;
+  pokemon.lastMoveName = move.name;
+}
+
+const V1014_ENCORE_FORBIDDEN_NAMES = new Set([
+  "アンコール","ねごと","わるあがき","ものまね","スケッチ","オウムがえし","へんしん",
+  "ゆびをふる","ねこのて","まねっこ","さきどり","しぜんのちから"
+]);
+
+function v1014EncoreCandidate(pokemon) {
+  if (!pokemon?.lastMoveId) return null;
+  if (pokemon.lastMoveId === "struggle") return null;
+  const owned = pokemon.moves?.find?.(m => m.id === pokemon.lastMoveId) || null;
+  const move = owned || MOVE_DEX[pokemon.lastMoveId] || null;
+  if (!move) return null;
+  if (V1014_ENCORE_FORBIDDEN_NAMES.has(move.name)) return null;
+  if (move.encoreTurns || move.sleepTalk || move.callOtherMove || move.transform || move.mimic || move.sketch) return null;
+  if (owned && owned.pp <= 0) return null;
+  return move;
+}
+
 // ============================================================
 // useMove v6
 // ============================================================
 
 const V52_useMove = useMove;
 useMove = function(attacker, defender, originalMove) {
-  const move = getEffectiveMove(attacker, originalMove);
+  // 同じターン中に先手アンコールを受けた場合も、選択済みの別技ではなく
+  // アンコール対象技を実際に使用する。
+  let actualOriginalMove = originalMove;
+  if (attacker.encoreTurns > 0 && attacker.encoreMoveId && originalMove?.id !== attacker.encoreMoveId) {
+    const forced = attacker.moves.find(m => m.id === attacker.encoreMoveId);
+    if (forced && forced.pp > 0) actualOriginalMove = forced;
+  }
+  const move = getEffectiveMove(attacker, actualOriginalMove);
   const logs = [];
   attacker.hasActedThisTurn = true;
   attacker.lastMoveFailed = false;
@@ -3050,7 +3202,7 @@ useMove = function(attacker, defender, originalMove) {
   const isSecondChargeTurn = attacker.chargingMoveId === move.id;
   if (!move.struggle && !isSecondChargeTurn) {
     move.pp--;
-    const original = attacker.moves.find(m => m.id === originalMove.id);
+    const original = attacker.moves.find(m => m.id === actualOriginalMove.id);
     if (original) original.pp = move.pp;
   }
 
@@ -3064,6 +3216,8 @@ useMove = function(attacker, defender, originalMove) {
   if (actionCheck.text) logs.push(actionCheck.text);
   if (!actionCheck.canAct) { attacker.lastMoveFailed = true; return logs; }
 
+  v1014RecordLastUsedMove(attacker, move);
+
   // ねごと
   if (move.sleepTalk) {
     logs.push(`${attacker.name}の ${move.name}！`);
@@ -3071,12 +3225,20 @@ useMove = function(attacker, defender, originalMove) {
     const choices = attacker.moves.filter(m => m.id !== move.id && m.id !== "rest" && m.pp > 0);
     if (!choices.length) { logs.push("しかし うまく決まらなかった！"); return logs; }
     const chosen = choices[Math.floor(Math.random() * choices.length)];
-    return logs.concat(useMove(attacker, defender, chosen));
+    const savedPP = chosen.pp;
+    const savedSameMoveCount = attacker.sameMoveCount;
+    const calledLogs = useMove(attacker, defender, chosen);
+    // ねごとで呼び出した技は自身のPPを消費せず、「最後に使った技」はねごとのまま。
+    chosen.pp = savedPP;
+    attacker.lastMoveId = move.id;
+    attacker.lastMoveName = move.name;
+    attacker.sameMoveCount = savedSameMoveCount;
+    return logs.concat(calledLogs);
   }
 
   // 先制条件技
   const selectedOpponentMove = v6GetSelectedOpponentMove(attacker);
-  if (move.suckerPunch && (!selectedOpponentMove || selectedOpponentMove.category === "status")) {
+  if (move.suckerPunch && (!selectedOpponentMove || selectedOpponentMove.category === "status" || defender.hasActedThisTurn)) {
     logs.push(`${attacker.name}の ${move.name}！`, "しかし うまく決まらなかった！");
     attacker.lastMoveFailed = true; return logs;
   }
@@ -3150,7 +3312,7 @@ useMove = function(attacker, defender, originalMove) {
 
     let actualDefender = defender;
     const targetsOpponent = v6StatusMoveTargetsOpponent(move);
-    if (targetsOpponent && defender.substituteHP > 0 && !move.sound) { logs.push(`${defender.name}の みがわりが 技を防いだ！`); return logs; }
+    if (targetsOpponent && defender.substituteHP > 0 && !move.sound && !move.ignoreSubstitute) { logs.push(`${defender.name}の みがわりが 技を防いだ！`); return logs; }
     if (targetsOpponent && defender.protectThisTurn) { logs.push(`${defender.name}は 攻撃を防いだ！`); return logs; }
     if (targetsOpponent && defender.ability.id === "magic-bounce") { logs.push(`${defender.name}の マジックミラーで はね返した！`); actualDefender = attacker; }
 
@@ -3217,8 +3379,18 @@ useMove = function(attacker, defender, originalMove) {
     if (move.confuse) logs.push(v6Confuse(actualDefender));
     if (move.tauntTurns) { actualDefender.tauntTurns = move.tauntTurns; logs.push(`${actualDefender.name}は ちょうはつされた！`); v6ConsumeMentalHerb(actualDefender); }
     if (move.encoreTurns) {
-      if (!actualDefender.lastMoveId) logs.push("しかし うまく決まらなかった！");
-      else { actualDefender.encoreTurns = move.encoreTurns; actualDefender.encoreMoveId = actualDefender.lastMoveId; logs.push(`${actualDefender.name}は アンコールを受けた！`); v6ConsumeMentalHerb(actualDefender); }
+      const encoreMove = v1014EncoreCandidate(actualDefender);
+      if (actualDefender.encoreTurns > 0 || !encoreMove) {
+        logs.push("しかし うまく決まらなかった！");
+      } else {
+        actualDefender.encoreTurns = move.encoreTurns;
+        actualDefender.encoreMoveId = encoreMove.id;
+        // 相手がこのターンすでに行動済みなら、付与ターン終了時には残りターンを減らさない。
+        // 未行動ならこのターンの強制行動を1ターン目として数える。
+        actualDefender.encoreSkipEndTurn = Boolean(actualDefender.hasActedThisTurn);
+        logs.push(`${actualDefender.name}は ${encoreMove.name}を アンコールされた！`);
+        v6ConsumeMentalHerb(actualDefender);
+      }
     }
     if (move.disableTurns) {
       if (!actualDefender.lastMoveId) logs.push("しかし うまく決まらなかった！");
@@ -3512,7 +3684,14 @@ endTurn = function() {
   const all = [...playerTeam, ...enemyTeam];
   all.forEach(p => {
     if (p.tauntTurns > 0) p.tauntTurns--;
-    if (p.encoreTurns > 0 && --p.encoreTurns <= 0) p.encoreMoveId = null;
+    if (p.encoreTurns > 0) {
+      if (p.encoreSkipEndTurn) {
+        p.encoreSkipEndTurn = false;
+      } else if (--p.encoreTurns <= 0) {
+        p.encoreMoveId = null;
+        p.encoreSkipEndTurn = false;
+      }
+    }
     if (p.disableTurns > 0 && --p.disableTurns <= 0) p.disabledMoveId = null;
     if (p.magnetRiseTurns > 0) p.magnetRiseTurns--;
     p.destinyBond = false;
@@ -3576,6 +3755,7 @@ endTurn = function() {
                 else if (v6ItemIsActive(target) && target.item.id === "focus-sash" && fullBefore) { target.itemConsumed = true; dealt = target.hp - 1; addLog(`${target.name}は きあいのタスキで耐えた！`, "log-system"); }
               }
               target.hp = Math.max(0, target.hp - dealt);
+              if (target.hp <= 0) v1014MarkFaint(target, "future-sight");
               addLog(`${target.name}に みらいよちの攻撃！ ${dealt} ダメージ！ ${getEffectivenessText(result.effectiveness)}`, "log-system", target);
               if (result.critical) addLog("急所に当たった！", "log-system");
               trySitrusBerry(target);
@@ -4133,6 +4313,39 @@ processMoveTurn = function(playerMove) {
 // ------------------------------------------------------------
 const V63_playerSwitchBase = playerSwitch;
 playerSwitch = function(newIndex) {
+  if (v1014PendingCpuDoubleReplacement !== null && !v63PendingPlayerPivot) {
+    if (battleOver) return;
+    const playerIncoming = playerTeam[newIndex];
+    const enemyIndex = v1014PendingCpuDoubleReplacement;
+    const enemyIncoming = enemyTeam[enemyIndex];
+    if (!playerIncoming || playerIncoming.hp <= 0 || newIndex === playerActiveIndex || !enemyIncoming || enemyIncoming.hp <= 0) return;
+
+    playerActiveIndex = newIndex;
+    enemyActiveIndex = enemyIndex;
+    resetOnSwitch(playerIncoming);
+    resetOnSwitch(enemyIncoming);
+    playerIncoming.v8FaintLogged = false;
+    enemyIncoming.v8FaintLogged = false;
+    v1014PendingCpuDoubleReplacement = null;
+    awaitingPlayerSwitch = false;
+
+    // 両者の交代先はプレイヤー選択後に同時公開。登場特性は実効S順で処理。
+    const incoming = [
+      { side:"player", p:playerIncoming },
+      { side:"enemy", p:enemyIncoming }
+    ].sort((a,b) => {
+      const sa = getModifiedStat(a.p,"speed"), sb = getModifiedStat(b.p,"speed");
+      return fieldState.trickRoom > 0 ? sa - sb : sb - sa;
+    });
+    incoming.forEach(({side,p}) => {
+      addLog(`${side === "player" ? "" : "相手は "}${p.name}${side === "player" ? "！ キミにきめた！" : "を くりだした！"}`, "log-system");
+      activateEntryAbility(p);
+    });
+    renderAll();
+    if (getPlayerPokemon()?.hp <= 0 || getEnemyPokemon()?.hp <= 0) resolveFaints();
+    return;
+  }
+
   if (!v63PendingPlayerPivot) {
     return V63_playerSwitchBase(newIndex);
   }
@@ -5480,8 +5693,8 @@ scoreMove = function(attacker, defender, move) {
     const cpuCpu = mode === "cpu-cpu";
 
     v8PartySourceA.replaceChildren();
-    if (cpuCpu) v8AppendSourceOption(v8PartySourceA, "random", "CPUが自動構築");
-    else v8AppendSourceOption(v8PartySourceA, "current", "現在の編成");
+    if (!cpuCpu) v8AppendSourceOption(v8PartySourceA, "current", "現在の編成");
+    v8AppendSourceOption(v8PartySourceA, "random", cpuCpu ? "CPUが自動構築" : "強化ランダムCPU構築");
     v8SavedParties.forEach(party => v8AppendSourceOption(v8PartySourceA, party.id, party.name));
 
     v8PartySourceB.replaceChildren();
@@ -5503,7 +5716,7 @@ scoreMove = function(attacker, defender, move) {
         ? "2人対戦では、行動選択のたびに画面を隠す「端末を渡す」画面を挟みます。"
         : cpuCpu
           ? "CPU A/Bが構築・3匹選出・対戦をすべて自動で行います。観戦中は一時停止や1ターン進行もできます。AIは各自の公開情報だけで判断します。"
-          : "CPUは構築・3匹選出・対戦を自動で行います。難易度が上がっても、あなたの未公開技・性格・能力P・持ち物・特性・未登場控えを直接参照しません。";
+          : "プレイヤーA側も「強化ランダムCPU構築」を選べます。CPUは構築・3匹選出・対戦を自動で行い、難易度が上がっても、あなたの未公開技・性格・能力P・持ち物・特性・未登場控えを直接参照しません。";
     }
   }
 
@@ -6229,7 +6442,8 @@ scoreMove = function(attacker, defender, move) {
     v8BattleMode = v8BattleModeSelect.value;
     v10CpuDifficultyA = v10CpuDifficultyASelect?.value || "very-strong";
     v10CpuDifficultyB = v10CpuDifficultyBSelect?.value || "very-strong";
-    v8RosterA = v8GetSourceSets(v8PartySourceA.value, v10CpuDifficultyA);
+    const sourceADifficulty = v8BattleMode === "cpu-cpu" ? v10CpuDifficultyA : "very-strong";
+    v8RosterA = v8GetSourceSets(v8PartySourceA.value, sourceADifficulty);
     v8RosterB = v8GetSourceSets(v8PartySourceB.value, v10CpuDifficultyB);
     const errA=v8ValidateTeam(v8RosterA), errB=v8ValidateTeam(v8RosterB);
     if (errA || errB) { setBuilderMessage(errA || errB,true); showScreen("builder"); return; }
@@ -6487,24 +6701,54 @@ scoreMove = function(attacker, defender, move) {
   const V8_ANNOUNCED_ENTRY_ABILITIES = new Set(["fairy-aura"]);
   const V8_activateEntryAbility = activateEntryAbility;
   activateEntryAbility = function(p) {
+    const hpBefore=Number(p?.hp??0);
     v8MarkSeen(p);
     if(p?.ability && V8_ANNOUNCED_ENTRY_ABILITIES.has(p.ability.id)) {
       addLog(`${p.name}の ${p.ability.name}が発動した！`, "log-system");
     }
-    return V8_activateEntryAbility(p);
+    const result=V8_activateEntryAbility(p);
+    if(hpBefore>0 && p?.hp<=0)v1014MarkFaint(p,"entry");
+    return result;
   };
 
   const V8_useMoveKnowledge = useMove;
-  useMove = function(attacker, defender, move) {
+  useMove = function(attacker, defender, selectedMove) {
+    // 先手アンコールを受けて同一ターン中に行動する場合、最外層から実際の強制技を
+    // 下位ランタイムへ渡す。これにより v7/v7.1/v7.2 の特殊技ラッパーも、選択時の技では
+    // なくアンコール対象技を基準に処理する。ふいうちの成否判定は選択済み行動を別経路で参照する。
+    let move=selectedMove;
+    if(attacker?.encoreTurns>0 && attacker?.encoreMoveId && selectedMove?.id!==attacker.encoreMoveId){
+      const forced=attacker.moves?.find?.(m=>m.id===attacker.encoreMoveId);
+      if(forced&&forced.pp>0)move=forced;
+    }
     const prev=v915MoveExecutionContext;
     const ctx={attacker,defender,move};
     const hadSubstitute=Boolean(defender?.substituteHP>0);
-    const hpBefore=Number(defender?.hp??0);
+    const defenderHpBefore=Number(defender?.hp??0);
+    const attackerHpBefore=Number(attacker?.hp??0);
     v915MoveExecutionContext=ctx;
     let logs;
     try{logs=V8_useMoveKnowledge(attacker,defender,move);}finally{v915MoveExecutionContext=prev;}
+
+    const attackerFainted=attackerHpBefore>0&&attacker?.hp<=0;
+    const defenderFainted=defenderHpBefore>0&&defender?.hp<=0;
+    if(attackerFainted&&defenderFainted){
+      // 自爆技/いのちがけは使用者が先に倒れる扱い。それ以外の反動・いのちのたま・
+      // みちづれ等は相手へのダメージ確定後に使用者側が倒れる順として扱う。
+      if(move?.selfFaintAfterDamage||move?.finalGambit){
+        v1014MarkFaint(attacker,"self-ko-move");
+        v1014MarkFaint(defender,"move-damage");
+      }else{
+        v1014MarkFaint(defender,"move-damage");
+        v1014MarkFaint(attacker,"recoil-or-followup");
+      }
+    }else{
+      if(defenderFainted)v1014MarkFaint(defender,"move-damage");
+      if(attackerFainted)v1014MarkFaint(attacker,move?.selfFaintAfterDamage||move?.finalGambit||move?.selfFaint?"self-ko-move":"recoil-or-followup");
+    }
+
     // CPU側は、自分が実際に失ったHP実数だけを学習する。相手側の正確HPは参照しない。
-    v10AiRecordObservedDamage(attacker,defender,move,logs,hadSubstitute,hpBefore);
+    v10AiRecordObservedDamage(attacker,defender,move,logs,hadSubstitute,defenderHpBefore);
     if(Array.isArray(logs))v915BatchContexts.set(logs,ctx);
     const name=move?.name || MOVE_DEX[move?.id]?.name;
     if (name && logs?.some?.(x=>String(x).includes(`${attacker.name}の ${name}`))) v8MarkMove(attacker,move.id);
@@ -6524,7 +6768,25 @@ scoreMove = function(attacker, defender, move) {
     const V915_processResidualForPokemon=processResidualForPokemon;
     processResidualForPokemon=function(pokemon){
       const prev=v915ResidualPokemon;v915ResidualPokemon=pokemon;
-      try{return V915_processResidualForPokemon(pokemon);}finally{v915ResidualPokemon=prev;}
+      const hpBefore=Number(pokemon?.hp??0);
+      try{return V915_processResidualForPokemon(pokemon);}
+      finally{
+        if(hpBefore>0&&pokemon?.hp<=0)v1014MarkFaint(pokemon,"end-turn-residual");
+        v915ResidualPokemon=prev;
+      }
+    };
+  }
+  // みらいよち等、processResidualForPokemon 外でターン終了時に発生するHP減少も記録。
+  if(typeof endTurn==="function"){
+    const V1014_endTurnFaintTrack=endTurn;
+    endTurn=function(){
+      const playerBefore=Number(getPlayerPokemon()?.hp??0);
+      const enemyBefore=Number(getEnemyPokemon()?.hp??0);
+      const result=V1014_endTurnFaintTrack();
+      // v6 side処理は player -> enemy の順。通常残ダメは上の residual wrapper ですでに記録済み。
+      if(playerBefore>0&&getPlayerPokemon()?.hp<=0&&!getPlayerPokemon()?.v1014FaintOrder)v1014MarkFaint(getPlayerPokemon(),"delayed-end-turn");
+      if(enemyBefore>0&&getEnemyPokemon()?.hp<=0&&!getEnemyPokemon()?.v1014FaintOrder)v1014MarkFaint(getEnemyPokemon(),"delayed-end-turn");
+      return result;
     };
   }
   // 交代時回復・設置物ダメージ・木の実なども同名個体を取り違えず対象側を記録する。
@@ -7160,9 +7422,16 @@ scoreMove = function(attacker, defender, move) {
   function v10ResolveCpuCpuFaints(){
     const faint=[];if(getPlayerPokemon()?.hp<=0)faint.push("player");if(getEnemyPokemon()?.hp<=0)faint.push("enemy");
     if(!faint.length){renderAll();return;}
-    faint.forEach(side=>{const p=v8Active(side);if(p&&!p.v8FaintLogged){p.v8FaintLogged=true;addLog(`${p.name}は たおれた！`,"log-system");}});
+    faint.forEach(side=>{const p=v8Active(side);if(p){v1014MarkFaint(p,"resolve");if(!p.v8FaintLogged){p.v8FaintLogged=true;addLog(`${p.name}は たおれた！`,"log-system");}}});
     const alive=side=>v8GetTeam(side).some(p=>p.hp>0),aa=alive("player"),bb=alive("enemy");
-    if(!aa||!bb){battleOver=true;awaitingPlayerSwitch=false;v10StopCpuCpuLoop();addLog(!aa&&!bb?"両CPUのポケモンがすべて倒れた！":`${aa?"CPU A":"CPU B"}の勝ち！`,"log-system");renderAll();return;}
+    if(!aa||!bb){
+      battleOver=true;awaitingPlayerSwitch=false;v10StopCpuCpuLoop();
+      if(!aa&&!bb){
+        const winner=v1014WinnerWhenBothOut();
+        addLog(winner?`${winner==="player"?"CPU A":"CPU B"}の勝ち！`:"両CPUの最後のポケモンが倒れたため 引き分け！","log-system");
+      }else addLog(`${aa?"CPU A":"CPU B"}の勝ち！`,"log-system");
+      renderAll();return;
+    }
     const incoming=[];
     faint.forEach(side=>{if(!alive(side))return;const idx=v10CpuCpuReplacement(side);if(idx<0)return;v8SetIndex(side,idx);const p=v8Active(side);resetOnSwitch(p);p.v8FaintLogged=false;incoming.push({side,p});});
     incoming.sort((x,y)=>{const sx=getModifiedStat(x.p,"speed"),sy=getModifiedStat(y.p,"speed");return fieldState.trickRoom>0?sx-sy:sy-sx;});
@@ -7178,9 +7447,16 @@ scoreMove = function(attacker, defender, move) {
     if(v8BattleMode==="cpu-cpu")return v10ResolveCpuCpuFaints();
     if(v8BattleMode!=="pvp")return V8_resolveFaints();
     const faint=[];if(getPlayerPokemon()?.hp<=0)faint.push("player");if(getEnemyPokemon()?.hp<=0)faint.push("enemy");if(!faint.length){renderAll();return;}
-    faint.forEach(side=>{const p=v8Active(side);if(p&&!p.v8FaintLogged){p.v8FaintLogged=true;addLog(`${p.name}は たおれた！`,"log-system");}});
+    faint.forEach(side=>{const p=v8Active(side);if(p){v1014MarkFaint(p,"resolve");if(!p.v8FaintLogged){p.v8FaintLogged=true;addLog(`${p.name}は たおれた！`,"log-system");}}});
     const alive=side=>v8GetTeam(side).some(p=>p.hp>0);const aa=alive("player"),bb=alive("enemy");
-    if(!aa||!bb){battleOver=true;awaitingPlayerSwitch=false;addLog(!aa&&!bb?"両者のポケモンがすべて倒れた！":`${aa?"プレイヤーA":"プレイヤーB"}の勝ち！`,"log-system");renderAll();return;}
+    if(!aa||!bb){
+      battleOver=true;awaitingPlayerSwitch=false;
+      if(!aa&&!bb){
+        const winner=v1014WinnerWhenBothOut();
+        addLog(winner?`${winner==="player"?"プレイヤーA":"プレイヤーB"}の勝ち！`:"両者の最後のポケモンが倒れたため 引き分け！","log-system");
+      }else addLog(`${aa?"プレイヤーA":"プレイヤーB"}の勝ち！`,"log-system");
+      renderAll();return;
+    }
     const need=faint.filter(alive);awaitingPlayerSwitch=true;v8ReplacementState={need,choices:{player:null,enemy:null},choosingSide:need.includes("player")?"player":"enemy"};v8PromptReplacement(v8ReplacementState.choosingSide);
   };
   function v8PromptReplacement(side){v8ReplacementState.choosingSide=side;v8ShowPass(`${v8SideLabel(side)}の交代`,`${v8SideLabel(side)}だけが画面を見て、次に出すポケモンを選んでください。`,()=>{v8ViewMode=side==="player"?"A":"B";renderAll();});}
@@ -7260,6 +7536,7 @@ scoreMove = function(attacker, defender, move) {
     const selB=v8SelectionB;if(v8SelectionA.length!==3||selB.length!==3)return;
     v10StopCpuCpuLoop();v10CpuCpuPaused=false;v10AiResetBattleMemory();
     playerTeam=v8SelectionA.map(i=>createPokemon(v8RosterA[i],i));enemyTeam=selB.map(i=>createPokemon(v8RosterB[i],i));playerTeam.forEach(p=>p.side="player");enemyTeam.forEach(p=>p.side="enemy");
+    v1014ResetFaintTrackingForBattle();
     playerActiveIndex=0;enemyActiveIndex=0;awaitingPlayerSwitch=false;battleOver=false;turnNumber=1;battleLog=[];weather={type:null,turns:0};fieldState={trickRoom:0,tailwind:{player:0,enemy:0}};if(typeof v6EnsureFieldState==="function"){fieldState.v6=null;v6EnsureFieldState();}
     v8WeatherMeta={sourceSide:null,sourcePokemon:null,extended:false};v8TerrainMeta={sourceSide:null,sourcePokemon:null,extended:false};v8ScreenMeta={player:{reflect:null,lightScreen:null},enemy:{reflect:null,lightScreen:null}};v8PendingActions={player:null,enemy:null};v8ReplacementState=null;v8PivotChoicePending=null;
     showScreen("battle");addLog("ポケモンバトルを開始！","log-system");
