@@ -7448,3 +7448,18 @@ if (typeof ENEMY_SET_LIBRARY !== "undefined") {
     v7sp("wanyudoro", "water-bubble", "none", "おくびょう", {hp:2,attack:0,defense:0,specialAttack:32,specialDefense:0,speed:32}, ["ハイドロポンプ","ルミナコリジョン","バブルガード","テレパスジャマー"])
   );
 }
+
+// v11: shared read-only data surface for Web Workers / research tools.
+// The main battle runtime still uses the lexical constants above directly.
+globalThis.NIWARA_DATA = Object.freeze({
+  LEVEL,
+  STAT_LABELS,
+  STAT_JP,
+  WEATHER_NAMES,
+  STATUS_NAMES,
+  MOVE_DEX,
+  ITEM_DEX,
+  NATURES,
+  SPECIES_DEX,
+  TYPE_CHART
+});

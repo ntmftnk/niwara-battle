@@ -1,0 +1,190 @@
+/* ニワラバトル v11 headless environment simulator core.
+   No DOM/localStorage access. Designed for Web Worker execution. */
+(function(root){
+  'use strict';
+  const DATA = root.NIWARA_DATA;
+  if (!DATA) throw new Error('NIWARA_DATA is required before sim-core.js');
+  const { LEVEL, MOVE_DEX, ITEM_DEX, NATURES, SPECIES_DEX, TYPE_CHART } = DATA;
+  const SPECIES = Object.values(SPECIES_DEX);
+  const ALL_TYPES = Object.keys(TYPE_CHART || {});
+  const STAT_NAMES = ['attack','defense','specialAttack','specialDefense','speed'];
+  const ABILITY_VALUE = {
+    'good-as-gold':13,'magic-guard':12,'power-construct':12,'night-scales':12,unaware:11,regenerator:10,
+    'fur-coat':10,'water-bubble':11,adaptability:9,'sheer-force':10,sharpness:9,schooling:10,'halloween-punk':10,
+    'trick-builder':9,drizzle:8,'sand-stream':8,levitate:7,'poison-heal':10,'speed-boost':10,sturdy:7,
+    'clear-body':6,'thick-fat':7,'lightning-rod':7,'sap-sipper':7,competitive:7,moxie:7,'magic-bounce':10,
+    'shadow-tag':9,'compound-eyes':6,stamina:8,'earth-eater':8,scrappy:7,'tinted-lens':8
+  };
+  const STATUS_NAMES = ['burn','poison','toxic','paralysis','sleep','freeze'];
+  const DEFAULT_STAGES = ()=>({attack:0,defense:0,specialAttack:0,specialDefense:0,speed:0,accuracy:0,evasion:0});
+  const RANKED_ATTACKS = Object.create(null);
+  for (const sp of SPECIES) {
+    RANKED_ATTACKS[sp.id] = sp.movePool.map(id=>MOVE_DEX[id]).filter(m=>m&&m.category!=='status')
+      .sort((a,b)=>(((b.power||0)*((b.accuracy??100)/100)+(sp.types.includes(b.type)?35:0))-((a.power||0)*((a.accuracy??100)/100)+(sp.types.includes(a.type)?35:0))));
+  }
+  const clamp=(n,min,max)=>Math.max(min,Math.min(max,n));
+  const deepClone=o=>JSON.parse(JSON.stringify(o));
+
+  function seedHash(seed, index){
+    let h = 2166136261 >>> 0;
+    const s = `${seed}|${index}`;
+    for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)>>>0;}
+    return h || 0x9e3779b9;
+  }
+  function makeRng(seed){
+    let x=(seed>>>0)||0x6d2b79f5;
+    const fn=()=>{x^=x<<13;x^=x>>>17;x^=x<<5;x>>>=0;return x/4294967296;};
+    fn.int=(n)=>Math.floor(fn()*n);
+    fn.pick=(arr)=>arr.length?arr[fn.int(arr.length)]:null;
+    fn.shuffle=(arr)=>{const a=[...arr];for(let i=a.length-1;i>0;i--){const j=fn.int(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;};
+    return fn;
+  }
+  function natureMult(name, stat){const n=NATURES[name]||NATURES['まじめ'];return n?.up===stat?1.1:n?.down===stat?0.9:1;}
+  function statValue(base, points, nature, stat){return Math.floor((base+clamp(Math.floor(points||0),0,32)+20)*natureMult(nature,stat));}
+  function hpValue(base, points){return base+clamp(Math.floor(points||0),0,32)+75;}
+  function stageMult(stage){stage=clamp(stage||0,-6,6);return stage>=0?(2+stage)/2:2/(2-stage);}
+  function effectiveSpeed(p, field){
+    let s=Math.floor(p.speed*stageMult(p.stages.speed));
+    if(p.status==='paralysis')s=Math.floor(s*0.5);
+    if(p.item?.id==='choice-scarf'&&!p.itemConsumed)s=Math.floor(s*1.5);
+    if(field.tailwind[p.side]>0)s*=2;
+    return Math.max(1,s);
+  }
+  function typeEffect(moveType, defenderTypes, attackerAbility){
+    let m=1;
+    for(const t of defenderTypes){
+      let x=TYPE_CHART?.[moveType]?.[t]; if(x==null)x=1;
+      if(x===0 && t==='ゴースト' && attackerAbility==='scrappy' && ['ノーマル','かくとう'].includes(moveType))x=1;
+      m*=x;
+    }
+    return m;
+  }
+  function role(sp){const b=sp.baseStats;const phys=b.attack>=b.specialAttack+18;const spec=b.specialAttack>=b.attack+18;return{phys,spec,mixed:!phys&&!spec,fast:b.speed>=100,bulky:b.hp+b.defense+b.specialDefense>=300};}
+  function natureFor(sp){const r=role(sp);if(r.phys&&r.fast)return'ようき';if(r.phys)return'いじっぱり';if(r.spec&&r.fast)return'おくびょう';if(r.spec)return'ひかえめ';return sp.baseStats.defense>=sp.baseStats.specialDefense?'わんぱく':'しんちょう';}
+  function pointsFor(sp){const r=role(sp),p={hp:0,attack:0,defense:0,specialAttack:0,specialDefense:0,speed:0};if(r.fast){p.speed=32;if(r.phys)p.attack=32;else if(r.spec)p.specialAttack=32;else p.hp=32;p.hp=p.hp||2;if(p.hp===32)p.specialDefense=2;}else if(r.bulky){p.hp=32;if(r.phys)p.attack=32;else if(r.spec)p.specialAttack=32;else if(sp.baseStats.defense>=sp.baseStats.specialDefense)p.specialDefense=32;else p.defense=32;p.defense=p.defense||2;}else{if(r.phys)p.attack=32;else p.specialAttack=32;p.hp=32;p.speed=2;}return p;}
+  function abilityFor(sp,rng,mode){const a=[...sp.abilities].sort((x,y)=>(ABILITY_VALUE[y.id]||0)-(ABILITY_VALUE[x.id]||0));if(mode==='uniform')return rng.pick(a)||sp.abilities[0];if(mode==='mixed')return a[Math.min(a.length-1,rng.int(Math.min(2,a.length)))]||sp.abilities[0];if(a.length>1&&rng()<0.18)return a[1];return a[0]||sp.abilities[0];}
+  function moveStaticScore(sp,m,abilityId){if(!m)return-999;const r=role(sp);if(m.category!=='status'){let s=(m.power||0)*((m.accuracy??100)/100);if(sp.types.includes(m.type))s+=38;if(r.phys&&m.category==='physical')s+=18;if(r.spec&&m.category==='special')s+=18;if(r.phys&&m.category==='special')s-=10;if(r.spec&&m.category==='physical')s-=10;if((m.priority||0)>0)s+=16;if(m.drainRatio)s+=11;if(m.pivot)s+=14;if(m.recoilRatio||m.recoilMaxHPRatio)s-=8;if(m.recharge)s-=22;if(m.selfFaint||m.selfFaintAfterDamage)s-=28;if(m.multiHit)s+=6;if(m.secondaryStatus||m.targetStatChanges||m.targetStatChangeChance||m.flinchChance||m.confuseChance)s+=9;if(abilityId==='sharpness'&&m.slicing)s+=28;if(abilityId==='water-bubble'&&m.type==='みず')s+=30;if(abilityId==='adaptability'&&sp.types.includes(m.type))s+=16;if(abilityId==='tinted-lens')s+=5;return s;}let s=18;if(m.healRatio||m.rest)s+=r.bulky?40:25;if(m.selfStatChanges)s+=22;if(m.weather||m.terrain||m.screen||m.tailwind||m.trickRoom)s+=28;if(m.hazard)s+=26;if(m.directStatus||m.toxic||m.yawn||m.tauntTurns||m.encoreTurns||m.disableTurns)s+=20;if(m.protect)s+=14;if(m.substitute)s+=12;return s;}
+  function chooseMoves(sp,ability,rng,mode){const all=sp.movePool.map(id=>MOVE_DEX[id]).filter(Boolean);if(mode==='uniform')return rng.shuffle(all).slice(0,4).map(m=>m.id);const ranked=[...all].sort((a,b)=>moveStaticScore(sp,b,ability.id)-moveStaticScore(sp,a,ability.id));const pool=ranked.slice(0,Math.min(mode==='mixed'?12:9,ranked.length));const out=[];const add=m=>{if(m&&!out.includes(m.id)&&out.length<4)out.push(m.id);};add(pool.find(m=>m.category!=='status'&&sp.types.includes(m.type))||pool[0]);if(mode==='mixed')rng.shuffle(pool.slice(1,9)).forEach(add);else{const ordered=[...pool.slice(1)];if(ordered.length>4&&rng()<0.35){const j=1+rng.int(Math.min(4,ordered.length-1));[ordered[2],ordered[j]]=[ordered[j],ordered[2]];}ordered.forEach(add);}ranked.forEach(add);return out.slice(0,4);}
+  function itemFor(sp,ability,moves,used,rng,mode){
+    const ms=moves.map(id=>MOVE_DEX[id]).filter(Boolean);const ids=Object.keys(ITEM_DEX).filter(id=>id!=='none'&&!used.has(id));
+    const preferred=[];
+    const add=id=>{if(ITEM_DEX[id]&&!used.has(id)&&!preferred.includes(id))preferred.push(id);};
+    if(ability.id==='poison-heal')add('toxic-orb');
+    if(ms.some(m=>m.twoTurn))add('power-herb');
+    if(ms.some(m=>m.rest))add('chesto-berry');
+    if(role(sp).fast)add('focus-sash');
+    if(ms.filter(m=>m.category!=='status').length>=3)add('life-orb');
+    if(sp.baseStats.speed<90)add('choice-scarf');
+    add('leftovers'); add('sitrus-berry'); add('life-orb'); add('expert-belt');
+    let id='none';
+    if(mode==='uniform') id=rng.pick(['none',...ids])||'none';
+    else if(preferred.length) id=((mode==='mixed'||rng()<0.22)&&preferred.length>1?rng.pick(preferred.slice(0,Math.min(3,preferred.length))):preferred[0]);
+    else id=rng.pick(['none',...ids.slice(0,12)])||'none';
+    if(id!=='none')used.add(id); return id;
+  }
+  function variantSpread(sp,rng,mode){const base=pointsFor(sp),r=role(sp);if(mode==='uniform'){const stats=['hp','attack','defense','specialAttack','specialDefense','speed'];const a=rng.pick(stats),b=rng.pick(stats.filter(x=>x!==a)),p={hp:0,attack:0,defense:0,specialAttack:0,specialDefense:0,speed:0};p[a]=32;p[b]=32;p[rng.pick(stats.filter(x=>x!==a&&x!==b))]=2;return p;}if(rng()<0.72)return base;const p={hp:0,attack:0,defense:0,specialAttack:0,specialDefense:0,speed:0},main=r.phys?'attack':r.spec?'specialAttack':(sp.baseStats.attack>=sp.baseStats.specialAttack?'attack':'specialAttack');if(r.fast&&rng()<0.5){p.speed=32;p.hp=32;p[main]=2;}else{p.hp=32;p[main]=32;p.speed=2;if(rng()<0.35){p[main]=2;p[sp.baseStats.defense>=sp.baseStats.specialDefense?'defense':'specialDefense']=32;}}return p;}
+  function natureForSpread(sp,p){const r=role(sp),main=r.phys?'attack':r.spec?'specialAttack':(sp.baseStats.attack>=sp.baseStats.specialAttack?'attack':'specialAttack');if(p.speed===32&&p[main]>=2)return main==='attack'?'ようき':'おくびょう';if(p[main]===32)return main==='attack'?'いじっぱり':'ひかえめ';if(p.defense===32)return'わんぱく';if(p.specialDefense===32)return'しんちょう';return natureFor(sp);}
+  function buildSet(sp,used,rng,buildMode='strong'){
+    const mode=buildMode==='uniform'?'uniform':buildMode==='mixed'?'mixed':'strong';
+    const ab=abilityFor(sp,rng,mode);const moves=chooseMoves(sp,ab,rng,mode);const statPoints=variantSpread(sp,rng,mode);return{speciesId:sp.id,abilityId:ab.id,itemId:itemFor(sp,ab,moves,used,rng,mode),nature:natureForSpread(sp,statPoints),statPoints,moves};
+  }
+  function weaknessPenalty(team){const count={};for(const set of team){const sp=SPECIES_DEX[set.speciesId];for(const t of ALL_TYPES){if(typeEffect(t,sp.types,null)>1)count[t]=(count[t]||0)+1;}}let p=0;for(const n of Object.values(count))if(n>=4)p+=(n-3)*10;return p;}
+  function teamQuality(team){let score=0,phys=0,spec=0,fast=0,bulky=0;const types=new Set();for(const set of team){const sp=SPECIES_DEX[set.speciesId],r=role(sp);phys+=r.phys?1:0;spec+=r.spec?1:0;fast+=r.fast?1:0;bulky+=r.bulky?1:0;score+=ABILITY_VALUE[set.abilityId]||0;for(const id of set.moves){const m=MOVE_DEX[id];if(m?.category!=='status')types.add(m.type);}}score+=types.size*2.2+(phys&&spec?12:-10)+(fast>=2?8:-5)+(bulky?4:-8)-weaknessPenalty(team);return score;}
+  function buildTeam(rng,difficulty='very-strong',buildMode='auto'){
+    const reps=[];const keys=new Set();for(const sp of SPECIES){const key=sp.dexNo!=null?`dex:${sp.dexNo}`:`id:${sp.id}`;if(!keys.has(key)){keys.add(key);reps.push(sp);}}
+    const mode=buildMode==='uniform'?'uniform':buildMode==='mixed'?'mixed':(difficulty==='normal'?'mixed':'strong');
+    if(mode==='uniform'){const used=new Set();return rng.shuffle(reps).slice(0,6).map(sp=>buildSet(sp,used,rng,'uniform'));}
+    const attempts=difficulty==='very-strong'?8:difficulty==='strong'?4:2;let best=null,bestScore=-1e9;
+    for(let a=0;a<attempts;a++){const used=new Set();const t=rng.shuffle(reps).slice(0,6).map(sp=>buildSet(sp,used,rng,mode));const s=teamQuality(t)+rng()*3;if(s>bestScore){bestScore=s;best=t;}}
+    return best;
+  }
+  function makePokemon(set,side){const sp=SPECIES_DEX[set.speciesId],p=set.statPoints||{};const maxHP=hpValue(sp.baseStats.hp,p.hp);return{id:sp.id,name:sp.name,types:[...sp.types],side,set,ability:sp.abilities.find(a=>a.id===set.abilityId)||sp.abilities[0],item:ITEM_DEX[set.itemId]||ITEM_DEX.none,itemConsumed:false,maxHP,hp:maxHP,attack:statValue(sp.baseStats.attack,p.attack,set.nature,'attack'),defense:statValue(sp.baseStats.defense,p.defense,set.nature,'defense'),specialAttack:statValue(sp.baseStats.specialAttack,p.specialAttack,set.nature,'specialAttack'),specialDefense:statValue(sp.baseStats.specialDefense,p.specialDefense,set.nature,'specialDefense'),speed:statValue(sp.baseStats.speed,p.speed,set.nature,'speed'),status:null,statusTurns:0,toxicCounter:0,stages:DEFAULT_STAGES(),moves:set.moves.map(id=>({...MOVE_DEX[id],pp:MOVE_DEX[id].maxPP})),recharge:false,charging:null,protect:false,protectChain:0,seeded:false,substituteHP:0,lastMoveId:null,choiceLock:null,turnsActive:0,koCount:0};}
+  function reveal(sideState,p,kind,value){const k=sideState.knowledge[p.id]||(sideState.knowledge[p.id]={seen:false,moves:{},ability:null,item:null});if(kind==='seen')k.seen=true;else if(kind==='move')k.moves[value]=1;else k[kind]=value;}
+  function publicView(oppSide,p){const k=oppSide.knowledge[p.id]||{};return{speciesId:p.id,types:[...p.types],hpPercent:Math.max(0,Math.ceil(p.hp*100/p.maxHP)),status:p.status,stages:{...p.stages},revealedMoves:Object.keys(k.moves||{}),abilityId:k.ability||null,itemId:k.item||null};}
+  function neutralModel(speciesId){const sp=SPECIES_DEX[speciesId],p={hp:16,attack:16,defense:16,specialAttack:16,specialDefense:16,speed:16};return makePokemon({speciesId:sp.id,abilityId:sp.abilities[0].id,itemId:'none',nature:'まじめ',statPoints:p,moves:sp.movePool.slice(0,4)},'model');}
+  function weatherMultiplier(type,weather){if(weather==='rain')return type==='みず'?1.5:type==='ほのお'?0.5:1;if(weather==='sun')return type==='ほのお'?1.5:type==='みず'?0.5:1;return 1;}
+  function abilityAttackMult(a,m){let x=1;if(a.ability.id==='sharpness'&&m.slicing)x*=1.5;if(a.ability.id==='water-bubble'&&m.type==='みず')x*=2;if(a.ability.id==='adaptability'&&a.types.includes(m.type))x*=4/3;if(a.ability.id==='sheer-force'&&(m.secondaryStatus||m.targetStatChangeChance))x*=1.3;if(a.ability.id==='blaze'&&m.type==='ほのお'&&a.hp<=a.maxHP/3)x*=1.5;if(a.ability.id==='torrent'&&m.type==='みず'&&a.hp<=a.maxHP/3)x*=1.5;if(a.ability.id==='overgrow'&&m.type==='くさ'&&a.hp<=a.maxHP/3)x*=1.5;return x;}
+  function abilityDefenseMult(d,m){let x=1;if(d.ability.id==='fur-coat'&&m.category==='physical')x*=0.5;if(d.ability.id==='thick-fat'&&['ほのお','こおり'].includes(m.type))x*=0.5;if(d.ability.id==='heatproof'&&m.type==='ほのお')x*=0.5;if(d.ability.id==='dry-skin'&&m.type==='ほのお')x*=1.25;return x;}
+  function itemAttackMult(a,m,eff){if(a.itemConsumed)return 1;let x=1;if(a.item.id==='life-orb')x*=1.3;if(a.item.id==='expert-belt'&&eff>1)x*=1.2;if(a.item.id==='muscle-band'&&m.category==='physical')x*=1.1;if(a.item.id==='wise-glasses'&&m.category==='special')x*=1.1;if(a.item.id==='choice-band'&&m.category==='physical')x*=1.5;if(a.item.id==='choice-specs'&&m.category==='special')x*=1.5;return x;}
+  function damageEstimate(a,d,m,field,randomFactor=0.925,critical=false){if(!m||m.category==='status'||!m.power)return 0;const eff=typeEffect(m.type,d.types,a.ability.id);if(eff===0)return 0;const atkStat=m.category==='physical'?a.attack:a.specialAttack;const defStat=m.category==='physical'?d.defense:d.specialDefense;let atk=Math.max(1,Math.floor(atkStat*stageMult(a.stages[m.category==='physical'?'attack':'specialAttack'])));let def=Math.max(1,Math.floor(defStat*stageMult(d.stages[m.category==='physical'?'defense':'specialDefense'])));let power=m.power;if(m.doubleIfTargetStatus&&d.status)power*=2;let base=Math.floor(((((2*LEVEL/5+2)*power*atk/def)/50)+2));let stab=a.types.includes(m.type)?(a.ability.id==='adaptability'?2:1.5):1;let burn=(a.status==='burn'&&m.category==='physical'&&!m.ignoreBurnAttackDrop)?0.5:1;let fieldMult=1;if(field.screens&&!critical){if(m.category==='physical'&&field.screens[d.side]?.reflect>0)fieldMult*=0.5;if(m.category==='special'&&field.screens[d.side]?.lightScreen>0)fieldMult*=0.5;}if(field.terrain&&grounded(a)){if(field.terrain==='electric'&&m.type==='でんき')fieldMult*=1.3;if(field.terrain==='psychic'&&m.type==='エスパー')fieldMult*=1.3;if(field.terrain==='grassy'&&m.type==='くさ')fieldMult*=1.3;}if(field.terrain==='misty'&&grounded(d)&&m.type==='ドラゴン')fieldMult*=0.5;let dmg=Math.floor(base*stab*eff*randomFactor*weatherMultiplier(m.type,field.weather)*abilityAttackMult(a,m)*abilityDefenseMult(d,m)*itemAttackMult(a,m,eff)*(critical?1.5:1)*burn*fieldMult);return Math.max(1,dmg);}
+  function possibleThreatMoves(pub,difficulty){if(!SPECIES_DEX[pub.speciesId])return[];const revealed=pub.revealedMoves.map(id=>MOVE_DEX[id]).filter(Boolean);const ranked=RANKED_ATTACKS[pub.speciesId]||[];const cap=difficulty==='normal'?3:difficulty==='strong'?5:8;const out=[...revealed];for(const m of ranked){if(out.length>=cap)break;if(!out.some(x=>x.id===m.id))out.push(m);}return out;}
+  function incomingThreat(candidate,pub,field,difficulty){const model=neutralModel(pub.speciesId);model.stages={...pub.stages};model.status=pub.status;let worst=0,avg=0,n=0;for(const m of possibleThreatMoves(pub,difficulty)){const d=damageEstimate(model,candidate,m,field,0.925,false);worst=Math.max(worst,d);avg+=d;n++;}return{worst,avg:n?avg/n:0};}
+  function statusScore(move,a,d,field){let s=0;if(move.healRatio)s+=a.hp<a.maxHP*0.55?55:10;if(move.selfStatChanges)s+=a.hp>a.maxHP*0.45?35:8;if(move.directStatus||move.toxic||move.yawn)s+=d.status?2:38;if(move.hazard)s+=22;if(move.weather)s+=field.weather===move.weather?2:22;if(move.tailwind)s+=field.tailwind[a.side]>0?2:30;if(move.trickRoom)s+=25;if(move.protect)s+=a.protectChain?5:18;if(move.encoreTurns||move.disableTurns||move.tauntTurns)s+=24;if(move.substitute)s+=a.hp>a.maxHP*0.55?20:2;return s;}
+  function moveScore(sideState,oppSide,a,d,move,field,difficulty,rng){
+    if(move.pp<=0)return-1e6;if(a.choiceLock&&a.choiceLock!==move.id)return-1e6;
+    const pub=publicView(sideState,d); // sideState contains what this side knows about opponent via knowledge stored on sideState
+    if(move.category==='status')return statusScore(move,a,d,field)+(rng()-0.5)*(difficulty==='normal'?18:4);
+    const model=neutralModel(pub.speciesId);model.stages={...pub.stages};model.status=pub.status;model.types=[...pub.types];
+    let dmg=damageEstimate(a,model,move,field,0.925,false);let s=dmg/Math.max(1,model.maxHP)*100;
+    const acc=(move.accuracy??100)/100;s*=acc;if(dmg>=model.hp)s+=55;if((move.priority||0)>0)s+=12;if(move.drainRatio)s+=12;if(move.pivot)s+=15;if(move.recoilRatio)s-=10;if(move.recharge)s-=28;if(move.twoTurn&&a.item.id!=='power-herb')s-=difficulty==='very-strong'?45:25;if(move.selfFaint||move.selfFaintAfterDamage)s-=35;
+    return s+(rng()-0.5)*(difficulty==='normal'?20:difficulty==='strong'?7:2);
+  }
+  function chooseAction(sideState,oppState,field,difficulty,rng){
+    const a=sideState.active,d=oppState.active;if(!a||a.hp<=0)return{type:'switch',index:bestSwitch(sideState,oppState,field,difficulty,rng,true)};
+    if(a.recharge)return{type:'recharge'};
+    if(a.charging)return{type:'move',moveId:a.charging,forced:true};
+    const pub=publicView(sideState,d);const threat=incomingThreat(a,pub,field,difficulty);const hp=a.hp;
+    let bestMove=null,bestMoveScore=-1e9;for(const m of a.moves){const sc=moveScore(sideState,oppState,a,d,m,field,difficulty,rng);if(sc>bestMoveScore){bestMoveScore=sc;bestMove=m;}}
+    const sw=bestSwitch(sideState,oppState,field,difficulty,rng,false);if(sw>=0&&sideState.team[sw]!==a){const c=sideState.team[sw];const t=incomingThreat(c,pub,field,difficulty);let swScore=(1-t.worst/c.maxHP)*100+(c.hp/c.maxHP)*35;const currentRisk=threat.worst>=hp?80:(threat.worst/hp)*45;if(difficulty==='very-strong'&&currentRisk>55)swScore+=35;if(swScore>bestMoveScore+(difficulty==='normal'?38:difficulty==='strong'?22:10))return{type:'switch',index:sw};}
+    return{type:'move',moveId:bestMove?.id||a.moves[0]?.id};
+  }
+  function bestSwitch(sideState,oppState,field,difficulty,rng,replacement){const pub=oppState.active?publicView(sideState,oppState.active):null;let best=-1,score=-1e9;for(let i=0;i<sideState.team.length;i++){const p=sideState.team[i];if(p.hp<=0||p===sideState.active)continue;let s=(p.hp/p.maxHP)*50;if(pub){const t=incomingThreat(p,pub,field,difficulty);s+=(1-t.worst/p.maxHP)*90;const model=neutralModel(pub.speciesId);for(const m of p.moves)if(m.category!=='status')s=Math.max(s,s+damageEstimate(p,model,m,field)/model.maxHP*35);}s+=rng()*3;if(s>score){score=s;best=i;}}return best;}
+  function selectionScore(set,oppSpeciesId){const p=makePokemon(set,'x'),model=neutralModel(oppSpeciesId);const f={weather:null,tailwind:{x:0,y:0}};let off=0;for(const m of p.moves)if(m.category!=='status')off=Math.max(off,damageEstimate(p,model,m,f,0.925));let th=0;for(const m of (RANKED_ATTACKS[oppSpeciesId]||[]).slice(0,6))th=Math.max(th,damageEstimate(model,p,m,f,0.925));return off/model.maxHP*100-th/p.maxHP*55;}
+  function selectThree(roster,oppRoster,difficulty,rng){if(difficulty==='normal')return rng.shuffle([0,1,2,3,4,5]).slice(0,3);const opp=oppRoster.map(x=>x.speciesId);let best=[0,1,2],bestScore=-1e9;for(let a=0;a<6;a++)for(let b=a+1;b<6;b++)for(let c=b+1;c<6;c++){const trio=[a,b,c];let s=0;for(const oid of opp){const vals=trio.map(i=>selectionScore(roster[i],oid)).sort((x,y)=>y-x);s+=vals[0]+(difficulty==='very-strong'?(vals[1]||0)*0.18:0);}if(s>bestScore){bestScore=s;best=trio;}}best.sort((i,j)=>opp.reduce((sum,o)=>sum+selectionScore(roster[j],o)-selectionScore(roster[i],o),0));return best;}
+  function applyEntry(p,field,ownerState,observerState){if(observerState)reveal(observerState,p,'seen');const id=p.ability.id;if(id==='drizzle'){field.weather='rain';field.weatherTurns=5;if(observerState)reveal(observerState,p,'ability',id);}if(id==='sand-stream'){field.weather='sand';field.weatherTurns=5;if(observerState)reveal(observerState,p,'ability',id);}if(id==='trick-builder'){field.trickRoom=Math.max(field.trickRoom,5);if(observerState)reveal(observerState,p,'ability',id);}if(id==='speed-boost'&&observerState)reveal(observerState,p,'ability',id);}
+  function switchTo(sideState,index,field,stats,oppState){const old=sideState.active;if(old&&old.hp>0&&old.ability.id==='regenerator'){old.hp=Math.min(old.maxHP,old.hp+Math.floor(old.maxHP/3));if(oppState)reveal(oppState,old,'ability','regenerator');}sideState.activeIndex=index;sideState.active=sideState.team[index];sideState.active.protect=false;sideState.active.protectChain=0;stats.switches[sideState.side]++;applyEntry(sideState.active,field,sideState,oppState);}
+  function consumeBerryForDamage(d,move,eff,damage){const map={'occa-berry':'ほのお','passho-berry':'みず','wacan-berry':'でんき','rindo-berry':'くさ','yache-berry':'こおり','chople-berry':'かくとう','kebia-berry':'どく','shuca-berry':'じめん','coba-berry':'ひこう','payapa-berry':'エスパー','tanga-berry':'むし','charti-berry':'いわ','kasib-berry':'ゴースト','haban-berry':'ドラゴン','colbur-berry':'あく','babiri-berry':'はがね','roseli-berry':'フェアリー'};if(d.itemConsumed)return damage;if(d.item.id==='chilan-berry'&&move.type==='ノーマル'){d.itemConsumed=true;return Math.max(1,Math.floor(damage/2));}if(map[d.item.id]===move.type&&eff>1){d.itemConsumed=true;return Math.max(1,Math.floor(damage/2));}return damage;}
+  function grounded(p){return !p.types.includes('ひこう')&&p.ability.id!=='levitate';}
+  function applyStatus(d,status,rng){if(d.status)return false;if(status==='burn'&&d.types.includes('ほのお'))return false;if(['poison','toxic'].includes(status)&&(d.types.includes('どく')||d.types.includes('はがね')))return false;if(status==='paralysis'&&d.types.includes('でんき'))return false;d.status=status;if(status==='sleep')d.statusTurns=1+rng.int(3);if(status==='toxic')d.toxicCounter=1;return true;}
+  function changeStage(p,changes){if(!changes)return;for(const [k,v] of Object.entries(changes)){if(k in p.stages)p.stages[k]=clamp(p.stages[k]+v,-6,6);}}
+  function executeMove(sideState,oppState,move,field,rng,stats){const a=sideState.active,d=oppState.active;if(!a||!d||a.hp<=0)return;if(a.recharge){a.recharge=false;return;}if(a.status==='sleep'){if(a.statusTurns>0){a.statusTurns--;return;}a.status=null;}if(a.status==='paralysis'&&rng()<0.25)return;
+    const actual=a.moves.find(x=>x.id===move.id)||move;if(actual.pp>0)actual.pp--;reveal(oppState,a,'move',actual.id);a.lastMoveId=actual.id;stats.moves[actual.id]=stats.moves[actual.id]||{uses:0,hits:0,damage:0,kos:0};stats.moves[actual.id].uses++;
+    if(actual.twoTurn&&!a.charging&&!(a.item.id==='power-herb'&&!a.itemConsumed)){a.charging=actual.id;if(actual.chargeBoost)changeStage(a,actual.chargeBoost);return;}if(a.charging===actual.id)a.charging=null;else if(actual.twoTurn&&a.item.id==='power-herb'&&!a.itemConsumed){a.itemConsumed=true;if(actual.chargeBoost)changeStage(a,actual.chargeBoost);reveal(oppState,a,'item',a.item.id);}
+    if(actual.suckerPunch&&!(oppState.pendingAction?.type==='move'&&MOVE_DEX[oppState.pendingAction.moveId]?.category!=='status'&&!oppState.acted))return;
+    if(actual.category==='status'){
+      if(actual.protect){const chance=a.protectChain?Math.pow(1/3,a.protectChain):1;if(rng()<chance){a.protect=true;a.protectChain++;}return;}a.protectChain=0;
+      if(actual.healRatio&&a.hp>0)a.hp=Math.min(a.maxHP,a.hp+Math.max(1,Math.floor(a.maxHP*actual.healRatio)));
+      if(actual.rest&&a.hp<a.maxHP){a.hp=a.maxHP;a.status='sleep';a.statusTurns=2;}
+      changeStage(a,actual.selfStatChanges);if(actual.targetStatChanges&&!d.protect)changeStage(d,actual.targetStatChanges);
+      if(actual.directStatus&&!d.protect)applyStatus(d,actual.directStatus,rng);if(actual.toxic&&!d.protect)applyStatus(d,'toxic',rng);
+      if(actual.weather){field.weather=actual.weather;field.weatherTurns=5;}if(actual.terrain){field.terrain=actual.terrain;field.terrainTurns=5;}if(actual.tailwind)field.tailwind[a.side]=4;if(actual.trickRoom)field.trickRoom=5;if(actual.screen){field.screens[a.side][actual.screen]=5;}
+      if(actual.hazard){const hz=field.hazards[d.side];if(actual.hazard==='stealthRock')hz.stealthRock=true;else if(actual.hazard==='spikes')hz.spikes=Math.min(3,(hz.spikes||0)+1);else if(actual.hazard==='toxicSpikes')hz.toxicSpikes=Math.min(2,(hz.toxicSpikes||0)+1);else if(actual.hazard==='stickyWeb')hz.stickyWeb=true;}
+      return;
+    }
+    a.protectChain=0;
+    if((actual.accuracy??100)<100&&rng()*100>actual.accuracy)return;if(d.protect&&!actual.breakProtect)return;
+    let eff=typeEffect(actual.type,d.types,a.ability.id);if(eff===0)return;
+    const critical=rng()<(actual.highCrit?1/8:1/24);let one=damageEstimate(a,d,actual,field,0.85+rng()*0.15,critical);let hits=1;if(Array.isArray(actual.multiHit)){const [lo,hi]=actual.multiHit;hits=lo===hi?lo:(rng()<0.375?2:rng()<0.6?3:rng()<0.8?4:5);hits=clamp(hits,lo,hi);}let dmg=one*hits;dmg=consumeBerryForDamage(d,actual,eff,dmg);
+    const before=d.hp;const fullBefore=d.hp===d.maxHP;let newHp=Math.max(0,d.hp-dmg);if(fullBefore&&newHp<=0&&!d.itemConsumed&&d.item.id==='focus-sash'){newHp=1;d.itemConsumed=true;reveal(sideState,d,'item',d.item.id);}if(fullBefore&&newHp<=0&&d.ability.id==='sturdy'){newHp=1;reveal(sideState,d,'ability',d.ability.id);}d.hp=newHp;const dealt=before-d.hp;stats.moves[actual.id].hits++;stats.moves[actual.id].damage+=dealt;if(before>0&&d.hp<=0){a.koCount++;stats.moves[actual.id].kos++;}
+    if(actual.drainRatio&&a.hp>0)a.hp=Math.min(a.maxHP,a.hp+Math.max(1,Math.floor(dealt*actual.drainRatio)));
+    if(actual.recoilRatio&&a.hp>0)a.hp=Math.max(0,a.hp-Math.max(1,Math.round(dealt*actual.recoilRatio)));
+    if(actual.recoilMaxHPRatio&&a.hp>0)a.hp=Math.max(0,a.hp-Math.max(1,Math.ceil(a.maxHP*actual.recoilMaxHPRatio)));
+    if(a.item.id==='life-orb'&&!a.itemConsumed&&dealt>0&&a.ability.id!=='magic-guard')a.hp=Math.max(0,a.hp-Math.max(1,Math.floor(a.maxHP/10)));
+    if(actual.selfFaint||actual.selfFaintAfterDamage)a.hp=0;if(actual.recharge&&dealt>0)a.recharge=true;
+    changeStage(a,actual.selfStatChanges);if(actual.targetStatChanges)changeStage(d,actual.targetStatChanges);if(actual.targetStatChangeChance&&rng()*100<actual.targetStatChangeChance.chance)changeStage(d,{[actual.targetStatChangeChance.stat]:actual.targetStatChangeChance.amount});if(actual.secondaryStatus&&rng()*100<actual.secondaryStatus.chance)applyStatus(d,actual.secondaryStatus.status,rng);if(actual.selfStatChangeChance&&rng()*100<actual.selfStatChangeChance.chance)changeStage(a,{[actual.selfStatChangeChance.stat]:actual.selfStatChangeChance.amount});if(!a.itemConsumed&&['choice-band','choice-specs','choice-scarf'].includes(a.item.id))a.choiceLock=actual.id;
+    if(actual.pivot&&a.hp>0){const idx=bestSwitch(sideState,oppState,field,sideState.difficulty,rng,false);if(idx>=0)switchTo(sideState,idx,field,stats,oppState);}
+  }
+  function residual(sideState,field){const p=sideState.active;if(!p||p.hp<=0)return;if(p.status==='burn')p.hp=Math.max(0,p.hp-Math.max(1,Math.floor(p.maxHP/16)));if(p.status==='poison')p.hp=Math.max(0,p.hp-Math.max(1,Math.floor(p.maxHP/8)));if(p.status==='toxic'){p.hp=Math.max(0,p.hp-Math.max(1,Math.floor(p.maxHP*(p.toxicCounter||1)/16)));p.toxicCounter=Math.min(15,(p.toxicCounter||1)+1);}if(p.item.id==='leftovers'&&!p.itemConsumed&&p.hp>0)p.hp=Math.min(p.maxHP,p.hp+Math.max(1,Math.floor(p.maxHP/16)));if(p.item.id==='sitrus-berry'&&!p.itemConsumed&&p.hp>0&&p.hp<=p.maxHP/2){p.hp=Math.min(p.maxHP,p.hp+Math.max(1,Math.floor(p.maxHP/4)));p.itemConsumed=true;}if(p.ability.id==='poison-heal'&&['poison','toxic'].includes(p.status)&&p.hp>0)p.hp=Math.min(p.maxHP,p.hp+Math.max(1,Math.floor(p.maxHP/8)));if(p.ability.id==='speed-boost'&&p.hp>0)p.stages.speed=clamp(p.stages.speed+1,-6,6);}
+  function hazardOnEntry(p,field){const hz=field.hazards[p.side];if(!hz)return;if(hz.stealthRock){const e=typeEffect('いわ',p.types,null);p.hp=Math.max(0,p.hp-Math.max(1,Math.floor(p.maxHP*e/8)));}if(hz.spikes&&grounded(p))p.hp=Math.max(0,p.hp-Math.max(1,Math.floor(p.maxHP*(hz.spikes>=3?1/4:hz.spikes===2?1/6:1/8))));if(hz.stickyWeb&&grounded(p))p.stages.speed=clamp(p.stages.speed-1,-6,6);if(hz.toxicSpikes&&grounded(p)){if(p.types.includes('どく'))hz.toxicSpikes=0;else if(!p.types.includes('はがね'))applyStatus(p,hz.toxicSpikes>=2?'toxic':'poison',()=>0.5);}}
+  function chooseReplacement(sideState,oppState,field,rng){const i=bestSwitch(sideState,oppState,field,sideState.difficulty,rng,true);if(i<0)return false;switchTo(sideState,i,field,sideState.stats,oppState);hazardOnEntry(sideState.active,field);return true;}
+  function living(team){return team.some(p=>p.hp>0);}
+  function processFaints(A,B,field,rng){let guard=0;while(guard++<8){if(!living(A.team)||!living(B.team))return;let changed=false;if(A.active.hp<=0){changed=chooseReplacement(A,B,field,rng)||changed;}if(B.active.hp<=0){changed=chooseReplacement(B,A,field,rng)||changed;}if(!changed|| (A.active.hp>0&&B.active.hp>0))return;}}
+  function orderActions(A,B,actA,actB,field,rng){if(actA.type==='switch'&&actB.type!=='switch')return[[A,B,actA],[B,A,actB]];if(actB.type==='switch'&&actA.type!=='switch')return[[B,A,actB],[A,B,actA]];if(actA.type==='switch'&&actB.type==='switch'){const sa=effectiveSpeed(A.active,field),sb=effectiveSpeed(B.active,field);if(sa===sb)return rng()<0.5?[[A,B,actA],[B,A,actB]]:[[B,A,actB],[A,B,actA]];const aFirst=field.trickRoom>0?sa<sb:sa>sb;return aFirst?[[A,B,actA],[B,A,actB]]:[[B,A,actB],[A,B,actA]];}
+    const ma=MOVE_DEX[actA.moveId],mb=MOVE_DEX[actB.moveId];const pa=ma?.priority||0,pb=mb?.priority||0;if(pa!==pb)return pa>pb?[[A,B,actA],[B,A,actB]]:[[B,A,actB],[A,B,actA]];const sa=effectiveSpeed(A.active,field),sb=effectiveSpeed(B.active,field);if(sa===sb)return rng()<0.5?[[A,B,actA],[B,A,actB]]:[[B,A,actB],[A,B,actA]];const af=field.trickRoom>0?sa<sb:sa>sb;return af?[[A,B,actA],[B,A,actB]]:[[B,A,actB],[A,B,actA]];}
+  function initSide(side,sets,selection,difficulty){const team=selection.map(i=>makePokemon(sets[i],side));const sideState={side,difficulty,team,activeIndex:0,active:team[0],knowledge:{},previewSpecies:sets.map(x=>x.speciesId),pendingAction:null,acted:false,stats:null};for(const p of team){p.side=side;}return sideState;}
+  function collectSetStats(result,set,selected,lead,winnerSide,side){const sp=result.species[set.speciesId]||(result.species[set.speciesId]={roster:0,selected:0,leads:0,teamWins:0,selectedWins:0,leadWins:0,kos:0,deaths:0});sp.roster++;if(selected)sp.selected++;if(lead)sp.leads++;if(winnerSide===side){sp.teamWins++;if(selected)sp.selectedWins++;if(lead)sp.leadWins++;}const spv=set.statPoints||{};const spread=[spv.hp||0,spv.attack||0,spv.defense||0,spv.specialAttack||0,spv.specialDefense||0,spv.speed||0].join('/');const key=`${set.speciesId}|${set.nature}|${spread}`;result.spreads[key]=(result.spreads[key]||0)+1;result.abilities[set.abilityId]=(result.abilities[set.abilityId]||0)+1;result.items[set.itemId]=(result.items[set.itemId]||0)+1;}
+  function emptyBatchStats(){return{battles:0,wins:{A:0,B:0,draw:0},turns:0,switches:0,species:{},moves:{},abilities:{},items:{},spreads:{},matchups:{}};}
+  function mergeStats(a,b){a.battles+=b.battles;a.turns+=b.turns;a.switches+=b.switches;a.wins.A+=b.wins.A;a.wins.B+=b.wins.B;a.wins.draw+=b.wins.draw;for(const key of ['abilities','items','spreads'])for(const [k,v] of Object.entries(b[key]))a[key][k]=(a[key][k]||0)+v;for(const [k,v] of Object.entries(b.species)){const t=a.species[k]||(a.species[k]={roster:0,selected:0,leads:0,teamWins:0,selectedWins:0,leadWins:0,kos:0,deaths:0});for(const x of Object.keys(t))t[x]+=(v[x]||0);}for(const [k,v] of Object.entries(b.moves)){const t=a.moves[k]||(a.moves[k]={uses:0,hits:0,damage:0,kos:0});for(const x of Object.keys(t))t[x]+=(v[x]||0);}for(const [k,v] of Object.entries(b.matchups)){const t=a.matchups[k]||(a.matchups[k]={games:0,wins:0});t.games+=v.games;t.wins+=v.wins;}return a;}
+  function simulateBattle(config,index){const rng=makeRng(seedHash(config.seed||'niwara',index));const diffA=config.difficultyA||'very-strong',diffB=config.difficultyB||'very-strong';const buildMode=config.buildMode||'auto';const rosterA=buildTeam(rng,diffA,buildMode),rosterB=buildTeam(rng,diffB,buildMode);const selA=selectThree(rosterA,rosterB,diffA,rng),selB=selectThree(rosterB,rosterA,diffB,rng);const A=initSide('A',rosterA,selA,diffA),B=initSide('B',rosterB,selB,diffB);const result=emptyBatchStats();result.battles=1;const battleStats={moves:result.moves,switches:{A:0,B:0}};A.stats=B.stats=battleStats;const field={weather:null,weatherTurns:0,terrain:null,terrainTurns:0,trickRoom:0,tailwind:{A:0,B:0},screens:{A:{reflect:0,lightScreen:0},B:{reflect:0,lightScreen:0}},hazards:{A:{},B:{}}};applyEntry(A.active,field,A,B);applyEntry(B.active,field,B,A);let turns=0;
+    while(turns<(config.turnLimit||200)&&living(A.team)&&living(B.team)){turns++;A.acted=B.acted=false;if(A.active)A.active.protect=false;if(B.active)B.active.protect=false;A.pendingAction=chooseAction(A,B,field,diffA,rng);B.pendingAction=chooseAction(B,A,field,diffB,rng);for(const [s,o,act] of orderActions(A,B,A.pendingAction,B.pendingAction,field,rng)){if(!s.active||s.active.hp<=0){s.acted=true;continue;}if(act.type==='switch'){if(act.index>=0)switchTo(s,act.index,field,battleStats,o),hazardOnEntry(s.active,field);}else if(act.type==='move'){executeMove(s,o,MOVE_DEX[act.moveId],field,rng,battleStats);}else if(act.type==='recharge'){s.active.recharge=false;}s.acted=true;if(!living(A.team)||!living(B.team))break;processFaints(A,B,field,rng);if(!living(A.team)||!living(B.team))break;}
+      if(!living(A.team)||!living(B.team))break;residual(A,field);residual(B,field);processFaints(A,B,field,rng);if(field.weatherTurns>0&&--field.weatherTurns<=0)field.weather=null;if(field.terrainTurns>0&&--field.terrainTurns<=0)field.terrain=null;if(field.trickRoom>0)field.trickRoom--;for(const s of ['A','B']){if(field.tailwind[s]>0)field.tailwind[s]--;for(const k of ['reflect','lightScreen'])if(field.screens[s][k]>0)field.screens[s][k]--;}
+    }
+    result.turns=turns;result.switches=battleStats.switches.A+battleStats.switches.B;const aliveA=living(A.team),aliveB=living(B.team);const winner=aliveA&&!aliveB?'A':aliveB&&!aliveA?'B':'draw';result.wins[winner]++;
+    for(let i=0;i<6;i++){collectSetStats(result,rosterA[i],selA.includes(i),i===selA[0],winner,'A');collectSetStats(result,rosterB[i],selB.includes(i),i===selB[0],winner,'B');}
+    for(const p of [...A.team,...B.team]){const s=result.species[p.id];if(s){s.kos+=p.koCount;if(p.hp<=0)s.deaths++;}}
+    const winSets=winner==='A'?selA.map(i=>rosterA[i]):winner==='B'?selB.map(i=>rosterB[i]):[];const loseSets=winner==='A'?selB.map(i=>rosterB[i]):winner==='B'?selA.map(i=>rosterA[i]):[];if(winner!=='draw')for(const w of winSets)for(const l of loseSets){const k=`${w.speciesId}>${l.speciesId}`;const t=result.matchups[k]||(result.matchups[k]={games:0,wins:0});t.games++;t.wins++;const kr=`${l.speciesId}>${w.speciesId}`;const r=result.matchups[kr]||(result.matchups[kr]={games:0,wins:0});r.games++;}
+    return result;
+  }
+  function simulateRange(config,start,count){const total=emptyBatchStats();for(let i=0;i<count;i++)mergeStats(total,simulateBattle(config,start+i));return total;}
+  root.NiwaraSimCore=Object.freeze({version:root.NIWARA_APP?.version||'dev',simulateBattle,simulateRange,emptyStats:emptyBatchStats,mergeStats,seedHash});
+})(globalThis);

@@ -1,0 +1,76 @@
+ニワラバトル v11.0.0 実装・監査メモ
+====================================
+
+[実装]
+- 環境研究フルスクリーンUI
+- Web Worker並列自己対戦
+- 目標 1 ～ 1,000,000戦
+- 1 / 2 / 3 / 4 / 6 / 8 Worker
+- 普通 / 強い / 非常に強い AI
+- 3種類の構築分布
+- シード固定
+- 一時停止 / 再開
+- IndexedDB永続化
+- 保存研究一覧
+- 調整前後比較
+- CSV / JSON出力
+- ヘッダーで進捗%表示
+- PWAオフラインキャッシュ追加
+
+[統計]
+- 25種の構築採用 / 選出 / 先発 / 勝率 / KO / 被KO
+- 技使用 / 有効率 / 平均ダメージ / KO
+- 持ち物 / 特性
+- 性格 / H-A-B-C-D-S能力P
+- 選出対面参考統計
+- 平均ターン / 平均交代 / 勝敗
+
+[静的検証]
+- app-config.js : node --check OK
+- game-data.js  : node --check OK
+- game.js       : node --check OK
+- pwa.js        : node --check OK
+- sim-core.js   : node --check OK
+- sim-worker.js : node --check OK
+- sim-manager.js: node --check OK
+- sw.js         : node --check OK
+- index.html ID重複: 0
+- index.html script/link参照欠損: 0
+- Service Workerアプリシェル参照欠損: 0
+
+[ヘッドレスコア実行試験]
+Node VM上で app-config.js + game-data.js + sim-core.js を同一コンテキストにロードして実行。
+200戦試験で以下を確認。
+- battles = 200
+- roster集計 = 2,400（200戦 × 2チーム × 6匹）
+- selected集計 = 1,200（200戦 × 2チーム × 3匹）
+- 25種すべて統計へ出現
+- NaNなし
+
+100戦の非常に強いAI同士の参考速度：単一スレッドで約4秒台。
+実ブラウザでは端末性能・Worker数・省電力制御により大きく変動する。
+
+[情報公開境界]
+AI意思決定は publicView / preview species を介する。
+選出評価では opponentRoster から speciesId のみ抽出し、セット詳細を破棄。
+技選択/交代評価では相手実moves・nature・statPoints・未公開item/abilityを参照しない設計。
+戦闘実行層は当然ながら実際のセットを使って結果を解決する。
+
+[注意]
+高速研究コアは大量自己対戦専用。
+通常対戦エンジンの全専用効果を1対1で複製したものではなく、一部の非常に特殊な効果は簡略化している。
+CPU環境統計として利用し、個別判定の仕様確認は通常対戦で行うこと。
+
+[ブラウザ自動試験]
+このコンテナのChromiumはheadless起動後に終了しない既知症状があり、DOM自動実行試験はタイムアウト。
+静的検証とヘッドレス戦闘コアの実行試験を代替として実施。
+
+[最終再監査]
+- v11.0.0 単一バージョン表記
+- 25種 / 350技 / 70持ち物 / 54特性
+- 50戦再試験：構築枠600 / 選出枠300で期待値と一致
+- 25種すべて出現
+- NaNなし
+- sim-manager DOM参照31件、欠損0
+- Service Worker APP_SHELL 13件、欠損0
+- 全データ初期化で環境研究IndexedDBも削除

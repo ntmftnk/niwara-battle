@@ -20,7 +20,7 @@
     <header class="app-header">
       <div>
         <h1>ニワラバトル</h1>
-        <p class="subtitle"><span data-app-version></span>：v10統合ランタイム / 安全性・アクセシビリティ改善</p>
+        <p class="subtitle"><span data-app-version></span>：v11 環境研究 / 高速CPU自己対戦・統計分析</p>
       </div>
       <div class="pwa-runtime-status" aria-label="PWA状態">
         <span id="pwa-version-badge" class="runtime-badge" data-app-version></span>
@@ -30,10 +30,11 @@
         <button id="open-pokedex-button" class="ghost-button" type="button">図鑑</button>
         <button id="open-damage-calc-button" class="ghost-button" type="button">ダメージ計算</button>
         <button id="open-speed-check-button" class="ghost-button" type="button" data-open-speed-check aria-haspopup="dialog">素早さ比較</button>
+        <button id="open-research-button" class="ghost-button" type="button">環境研究</button>
         <button id="pwa-install-button" class="ghost-button hidden" type="button">アプリをインストール</button>
         <button id="pwa-update-check-button" class="ghost-button" type="button">更新確認</button>
         <button id="go-builder-button" class="ghost-button hidden">編成へ戻る</button>
-        <button id="reset-all-button" class="dark-button" type="button" title="現在編成と保存パーティーをすべて削除">全データ初期化</button>
+        <button id="reset-all-button" class="dark-button" type="button" title="現在編成・保存パーティー・環境研究結果をすべて削除">全データ初期化</button>
       </div>
     </header>
 
@@ -153,6 +154,83 @@
         <span></span>
         <button id="mode-continue-button" class="primary-button">選出へ</button>
       </div>
+    </section>
+
+    <section id="research-screen" class="screen hidden research-screen" aria-labelledby="research-heading">
+      <div class="section-heading research-heading-row">
+        <div>
+          <h2 id="research-heading">環境研究シミュレーター</h2>
+          <p>CPU自己対戦をWeb Workerで高速実行し、「CPU環境使用率」を集計します。人間プレイヤーの使用率ではありません。</p>
+        </div>
+        <button id="research-close-button" class="ghost-button" type="button">元の画面へ戻る</button>
+      </div>
+
+      <section class="research-config-panel">
+        <div class="research-config-grid">
+          <label><span>研究名</span><input id="research-run-name" type="text" maxlength="48" placeholder="例：ジュエルカッター調整後"></label>
+          <label><span>目標試合数</span><input id="research-target" type="number" min="1" max="1000000" step="100" value="10000" inputmode="numeric"></label>
+          <label><span>CPU A</span><select id="research-ai-a"><option value="normal">普通</option><option value="strong">強い</option><option value="very-strong" selected>非常に強い</option></select></label>
+          <label><span>CPU B</span><select id="research-ai-b"><option value="normal">普通</option><option value="strong">強い</option><option value="very-strong" selected>非常に強い</option></select></label>
+          <label><span>構築方式</span><select id="research-build-mode"><option value="auto" selected>難易度連動・強化構築</option><option value="mixed">準ランダム構築</option><option value="uniform">完全ランダム寄り</option></select></label>
+          <label><span>並列Worker</span><select id="research-workers"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option><option value="6">6</option><option value="8">8</option></select></label>
+          <label><span>乱数シード</span><input id="research-seed" type="text" value="niwara-v11" maxlength="40"></label>
+          <label><span>最大ターン</span><input id="research-turn-limit" type="number" min="20" max="500" value="200" inputmode="numeric"></label>
+        </div>
+        <div class="research-quick-targets" aria-label="試合数プリセット">
+          <button class="ghost-button compact-button" type="button" data-research-target="1000">1,000戦</button>
+          <button class="ghost-button compact-button" type="button" data-research-target="10000">10,000戦</button>
+          <button class="ghost-button compact-button" type="button" data-research-target="50000">50,000戦</button>
+          <button class="ghost-button compact-button" type="button" data-research-target="100000">100,000戦</button>
+        </div>
+        <div class="research-actions">
+          <button id="research-start" class="primary-button" type="button">新しい研究を開始</button>
+          <button id="research-pause" class="ghost-button" type="button" disabled>一時停止</button>
+          <button id="research-resume" class="ghost-button" type="button" disabled>再開</button>
+          <button id="research-export-csv" class="ghost-button" type="button">CSV出力</button>
+          <button id="research-export-json" class="ghost-button" type="button">JSON出力</button>
+        </div>
+        <div class="research-progress" aria-live="polite">
+          <div class="research-progress-track"><div id="research-progress-bar" class="research-progress-bar"></div></div>
+          <strong id="research-progress-text">未開始</strong>
+          <span id="research-progress-meta"></span>
+          <span id="research-status" class="research-status">待機中</span>
+        </div>
+        <p class="research-note">シミュレーションはアプリを開いている間だけ進みます。途中結果はIndexedDBへ保存されるため、停止・再開できます。画面を閉じても完了済み集計は残ります。高速研究コアは大量試行向けで、通常対戦と同じデータ・能力値・タイプ相性・主要な技/持ち物/場効果を使用しますが、極端に特殊な専用効果は簡略化される場合があります。</p>
+      </section>
+
+      <div id="research-summary" class="research-kpi-grid"></div>
+
+      <details class="research-table-panel" open><summary>ポケモン使用率・選出率・勝率</summary>
+        <div class="research-table-scroll"><table><thead><tr><th>ポケモン</th><th>構築採用率</th><th>選出率</th><th>先発率</th><th>選出時勝率</th><th>KO</th><th>被KO</th></tr></thead><tbody id="research-species-body"></tbody></table></div>
+      </details>
+      <details class="research-table-panel"><summary>技使用統計</summary>
+        <div class="research-table-scroll"><table><thead><tr><th>技</th><th>使用回数</th><th>命中/有効率</th><th>平均ダメージ</th><th>KO</th></tr></thead><tbody id="research-moves-body"></tbody></table></div>
+      </details>
+      <details class="research-table-panel"><summary>よく使われる性格・能力P</summary>
+        <div class="research-table-scroll"><table><thead><tr><th>ポケモン</th><th>性格</th><th>能力P H/A/B/C/D/S</th><th>採用数</th></tr></thead><tbody id="research-spreads-body"></tbody></table></div>
+      </details>
+      <div class="research-two-columns">
+        <details class="research-table-panel"><summary>持ち物採用率</summary><div class="research-table-scroll"><table><thead><tr><th>持ち物</th><th>採用数</th><th>全枠比</th></tr></thead><tbody id="research-items-body"></tbody></table></div></details>
+        <details class="research-table-panel"><summary>特性採用率</summary><div class="research-table-scroll"><table><thead><tr><th>特性</th><th>採用数</th><th>全枠比</th></tr></thead><tbody id="research-abilities-body"></tbody></table></div></details>
+      </div>
+      <details class="research-table-panel"><summary>選出対面統計</summary>
+        <p class="research-note">勝利側の選出3匹と敗北側の選出3匹を組み合わせた参考対面統計です。直接1対1で殴り合った回数とは異なります。</p>
+        <div class="research-table-scroll"><table><thead><tr><th>組み合わせ</th><th>サンプル</th><th>勝率</th></tr></thead><tbody id="research-matchups-body"></tbody></table></div>
+      </details>
+
+      <section class="research-history-panel">
+        <h3>保存済み研究</h3>
+        <div class="research-table-scroll"><table><thead><tr><th>研究名</th><th>版</th><th>進捗</th><th>状態</th><th>更新日時</th><th>操作</th></tr></thead><tbody id="research-history-body"></tbody></table></div>
+      </section>
+      <section class="research-compare-panel">
+        <h3>調整前後を比較</h3>
+        <div class="research-compare-controls">
+          <label>比較元<select id="research-compare-base"></select></label>
+          <label>比較先<select id="research-compare-new"></select></label>
+          <button id="research-compare-button" class="primary-button" type="button">比較する</button>
+        </div>
+        <div class="research-table-scroll"><table><thead><tr><th>ポケモン</th><th>元使用率</th><th>新使用率</th><th>差</th><th>元勝率</th><th>新勝率</th><th>差</th></tr></thead><tbody id="research-compare-body"></tbody></table></div>
+      </section>
     </section>
 
     <section id="selection-screen" class="screen hidden">
@@ -488,5 +566,6 @@
   <script src="game-data.js"></script>
   <script src="game.js"></script>
   <script src="pwa.js"></script>
+  <script src="sim-manager.js"></script>
 </body>
 </html>

@@ -2245,7 +2245,7 @@ forfeitButton.addEventListener("click", () => {
 
 resetAllButton.addEventListener("click", () => {
   if (!window.__NIWARA_RESET_CONFIRMED__) {
-    const ok = window.confirm("現在の編成と保存パーティーをすべて削除して初期状態に戻します。\n最大30件の保存パーティーも削除され、元に戻せません。\n\n本当に初期化しますか？");
+    const ok = window.confirm("現在の編成・保存パーティー・環境研究結果をすべて削除して初期状態に戻します。\n最大30件の保存パーティーとIndexedDBの環境研究履歴も削除され、元に戻せません。\n\n本当に初期化しますか？");
     if (!ok) return;
     window.__NIWARA_RESET_CONFIRMED__ = true;
   }
@@ -2253,7 +2253,7 @@ resetAllButton.addEventListener("click", () => {
   localStorage.removeItem(LEGACY_STORAGE_KEY);
   builderSets = deepClone(DEFAULT_PLAYER_SETS).map(normalizeSet);
   selectedRosterIndices = [];
-  setBuilderMessage("現在の編成と保存パーティーを削除して初期状態に戻しました。", false);
+  setBuilderMessage("現在の編成・保存パーティー・環境研究結果を削除して初期状態に戻しました。", false);
   renderBuilder();
   showScreen("builder");
 });
@@ -7617,13 +7617,14 @@ scoreMove = function(attacker, defender, move) {
     localStorage.removeItem(V8_PARTY_LIBRARY_KEY);
     v8SavedParties=[];
     v8RenderPartyLibrary();
+    try { window.NIWARA_RESEARCH?.clearAll?.(); } catch (e) { console.warn("research reset failed", e); }
     window.__NIWARA_RESET_CONFIRMED__=false;
   });
 
   // ------------------------------------------------------------
   // 起動
   // ------------------------------------------------------------
-  v8LoadPartyLibrary();v8RenderPartyLibrary();v8RenderBattleSourceOptions();renderBuilder();renderDataCounts();setBuilderMessage(`v${V8_VERSION}：v10統合ランタイムで起動しました。保存データ互換・公開情報ルールは維持されています。`,false);showScreen("builder");
+  v8LoadPartyLibrary();v8RenderPartyLibrary();v8RenderBattleSourceOptions();renderBuilder();renderDataCounts();setBuilderMessage(`v${V8_VERSION}：v11環境研究対応ランタイムで起動しました。保存データ互換・公開情報ルールは維持されています。`,false);showScreen("builder");
 
   window.__PBV8={
     get savedParties(){return v8SavedParties;},buildStrongRandomTeam:v8BuildStrongRandomTeam,chooseCpuSelection:v8ChooseCpuSelection,validateTeam:v8ValidateTeam,

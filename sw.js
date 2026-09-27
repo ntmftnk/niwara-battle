@@ -1,10 +1,10 @@
-/* ニワラバトル v10 PWA Service Worker
+/* ニワラバトル v11 PWA Service Worker
  * バージョン単位のアプリシェルを原子的に切り替える。
- * updater-generation: 5  // top-level bytesも更新し、旧PWAからの更新検出を保証する
+ * updater-generation: 6  // top-level bytesも更新し、旧PWAからの更新検出を保証する
  */
 importScripts("./app-config.js");
 const APP_VERSION = self.NIWARA_APP.version;
-const SW_UPDATE_GENERATION = 5;
+const SW_UPDATE_GENERATION = 6;
 const CACHE_PREFIX = "niwara-battle-shell-";
 const CACHE_NAME = `${CACHE_PREFIX}${APP_VERSION}`;
 const APP_SHELL = [
@@ -14,6 +14,9 @@ const APP_SHELL = [
   "./game-data.js",
   "./game.js",
   "./pwa.js",
+  "./sim-manager.js",
+  "./sim-core.js",
+  "./sim-worker.js",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",

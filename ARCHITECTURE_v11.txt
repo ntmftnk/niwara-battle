@@ -1,0 +1,59 @@
+ニワラバトル v11 アーキテクチャ
+================================
+
+通常対戦系
+  app-config.js
+      ↓
+  game-data.js
+      ↓
+  game.js
+      ↓
+  pwa.js
+
+環境研究系
+  app-config.js
+      ↓
+  game-data.js
+      ↓
+  sim-worker.js
+      ├ importScripts(app-config.js)
+      ├ importScripts(game-data.js)
+      └ importScripts(sim-core.js)
+              ↓
+        ヘッドレスCPU自己対戦
+
+  sim-manager.js
+      ├ Worker並列管理
+      ├ IndexedDB保存 / 再開
+      ├ 統計マージ
+      ├ CSV / JSON出力
+      └ 調整前後比較UI
+
+v11で game-data.js の末尾に NIWARA_DATA 読み取り専用公開面を追加。
+通常ゲーム本体は従来どおり lexical const を使用し、Workerは NIWARA_DATA から同じデータを参照する。
+
+環境研究AIの公開情報境界
+------------------------
+構築：相手情報なし
+選出：相手の6種族IDのみ
+対戦：publicView() が返す情報のみ
+  - 現在場の種族 / タイプ
+  - HP%
+  - 状態異常
+  - 能力ランク
+  - 公開済み技
+  - 公開済み特性 / 持ち物（研究AIの現行評価では主に技・種族情報を利用）
+
+実際の相手 set.nature / set.statPoints / set.moves / hidden item / hidden ability はAI評価へ渡さない。
+戦闘結果を確定する実行層だけが実セットを使用する。
+
+乱数
+----
+seedHash(研究シード, 試合番号) -> xorshift32
+各試合が独立シードのため、Worker並列数が変わっても試合番号ごとの乱数系列は維持される。
+
+永続化
+------
+IndexedDB: niwaraBattleResearchV11
+object store: runs
+保存内容：設定、目標試合数、完了試合数、未処理range、統計、状態、日時。
