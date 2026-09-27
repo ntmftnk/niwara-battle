@@ -1,5 +1,5 @@
 // ============================================================
-// ニワラバトル v9.1.5 utility tools
+// ニワラバトル v9.1.6 utility tools
 // - 図鑑
 // - ダメージ計算シミュレーター
 // - 素早さ比較ツール
@@ -379,7 +379,15 @@
 
   $("open-pokedex-button")?.addEventListener("click",openDex);$("battle-pokedex-button")?.addEventListener("click",openDex);$("pokedex-close")?.addEventListener("click",()=>closeModal(pokedexModal));pokedexModal?.querySelector("[data-close-pokedex]")?.addEventListener("click",()=>closeModal(pokedexModal));pokedexSearch?.addEventListener("input",renderDexList);
   $("open-damage-calc-button")?.addEventListener("click",openDamage);$("battle-damage-calc-button")?.addEventListener("click",openDamage);$("damage-calc-close")?.addEventListener("click",()=>closeModal(damageModal));damageModal?.querySelector("[data-close-damage-calc]")?.addEventListener("click",()=>closeModal(damageModal));$("damage-load-current")?.addEventListener("click",loadCurrent);$("damage-swap-sides")?.addEventListener("click",swapDamageSides);$("damage-calculate")?.addEventListener("click",calcDamage);
-  $("open-speed-check-button")?.addEventListener("click",openSpeed);$("battle-speed-check-button")?.addEventListener("click",openSpeed);$("speed-check-close")?.addEventListener("click",()=>closeModal(speedModal));speedModal?.querySelector("[data-close-speed-check]")?.addEventListener("click",()=>closeModal(speedModal));$("speed-load-current")?.addEventListener("click",loadCurrentSpeed);$("speed-calculate")?.addEventListener("click",calcSpeed);speedIds.targetSpecies?.addEventListener("change",()=>{speedSetLoadNote("target",null);speedRefreshAbility("target");});speedIds.chaserSpecies?.addEventListener("change",()=>{speedSetLoadNote("chaser",null);speedRefreshAbility("chaser");});
+  // v9.1.6: PC/PWAでボタン個別結線が古いDOM/キャッシュ状態に影響されないよう、
+  // 素早さ比較の起動だけはdocument委譲で一元化する。ヘッダー/対戦中ボタンとも同じ経路。
+  document.addEventListener("click",e=>{
+    const trigger=e.target instanceof Element?e.target.closest("[data-open-speed-check]"):null;
+    if(!trigger)return;
+    e.preventDefault();
+    openSpeed();
+  },true);
+  $("speed-check-close")?.addEventListener("click",()=>closeModal(speedModal));speedModal?.querySelector("[data-close-speed-check]")?.addEventListener("click",()=>closeModal(speedModal));$("speed-load-current")?.addEventListener("click",loadCurrentSpeed);$("speed-calculate")?.addEventListener("click",calcSpeed);speedIds.targetSpecies?.addEventListener("change",()=>{speedSetLoadNote("target",null);speedRefreshAbility("target");});speedIds.chaserSpecies?.addEventListener("change",()=>{speedSetLoadNote("chaser",null);speedRefreshAbility("chaser");});
   ids.atkSpecies?.addEventListener("change",()=>{loadedBattleSnapshots.atk=null;setLoadNote("atk",null);refreshSide("atk");});ids.defSpecies?.addEventListener("change",()=>{loadedBattleSnapshots.def=null;setLoadNote("def",null);refreshSide("def");});ids.move?.addEventListener("change",syncLoadedStagesToMove);
   document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeModal(pokedexModal);closeModal(damageModal);closeModal(speedModal);}});
   populateBaseSelects();populateSpeedTool();renderDexList();renderDexDetail();

@@ -11,7 +11,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <title>ニワラバトル v9.1.5</title>
+  <title>ニワラバトル v9.1.6</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -19,16 +19,16 @@
     <header class="app-header">
       <div>
         <h1>ニワラバトル</h1>
-        <p class="subtitle">v9.1.5：控え状態確認 / 視点別ダメージ・回復ログ</p>
+        <p class="subtitle">v9.1.6：PC素早さ比較修正 / モバイルヘッダー省スペース化</p>
       </div>
       <div class="pwa-runtime-status" aria-label="PWA状態">
-        <span id="pwa-version-badge" class="runtime-badge">v9.1.5</span>
+        <span id="pwa-version-badge" class="runtime-badge">v9.1.6</span>
         <span id="pwa-network-status" class="runtime-badge" aria-live="polite">オンライン</span>
       </div>
       <div class="header-actions">
         <button id="open-pokedex-button" class="ghost-button" type="button">図鑑</button>
         <button id="open-damage-calc-button" class="ghost-button" type="button">ダメージ計算</button>
-        <button id="open-speed-check-button" class="ghost-button" type="button">素早さ比較</button>
+        <button id="open-speed-check-button" class="ghost-button" type="button" data-open-speed-check aria-haspopup="dialog">素早さ比較</button>
         <button id="pwa-install-button" class="ghost-button hidden" type="button">アプリをインストール</button>
         <button id="pwa-update-check-button" class="ghost-button" type="button">更新確認</button>
         <button id="go-builder-button" class="ghost-button hidden">編成へ戻る</button>
@@ -204,7 +204,7 @@
             <button id="copy-battle-context-button" type="button" class="ghost-button">状況＋ログをコピー</button>
             <button id="battle-pokedex-button" type="button" class="ghost-button">図鑑</button>
             <button id="battle-damage-calc-button" type="button" class="ghost-button">ダメージ計算</button>
-            <button id="battle-speed-check-button" type="button" class="ghost-button">素早さ比較</button>
+            <button id="battle-speed-check-button" type="button" class="ghost-button" data-open-speed-check aria-haspopup="dialog">素早さ比較</button>
           </div>
         </div>
       </section>
