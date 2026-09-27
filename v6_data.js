@@ -2598,7 +2598,7 @@ SPECIES_DEX["goukain"].movePool = ["aqua-jet", "liquidation", "wave-crash", "fli
 SPECIES_DEX["arukerukesu"].movePool = ["beast-dash", "close-combat", "body-press", "brick-break", "v6-155", "v6-013", "v6-122", "v6-156", "wave-crash", "flip-turn", "waterfall", "liquidation", "v6-003", "body-slam", "v6-093", "v6-094", "earthquake", "v6-014", "v6-015", "high-horsepower", "smart-strike", "throat-chop", "protect", "v6-017", "v6-018", "v6-076", "bulk-up", "iron-defense", "v6-108", "v6-043"];
 SPECIES_DEX["castleude"].movePool = ["midnight-bell", "moonblast", "dazzling-gleam", "v6-050", "v6-157", "play-rough", "psychic", "v6-052", "psyshock", "v6-139", "v6-158", "v6-159", "zen-headbutt", "mystical-fire", "shadow-ball", "dark-pulse", "v6-068", "hyper-voice", "v6-121", "protect", "v6-017", "v6-018", "v6-019", "v6-160", "calm-mind", "v6-056", "nasty-plot", "v6-076", "moonlight", "trick-room", "v6-161", "v6-162", "v6-163", "v6-164", "v6-082", "iron-defense", "v6-165", "v6-166", "v6-145"];
 SPECIES_DEX["furuseyua"].movePool = ["shadow-ball", "hex", "v6-066", "shadow-sneak", "v6-132", "body-slam", "hyper-voice", "v6-167", "dazzling-gleam", "icy-wind", "dark-pulse", "psychic", "protect", "v6-017", "v6-018", "calm-mind", "v6-056", "nasty-plot", "v6-076", "recover", "will-o-wisp", "thunder-wave", "v6-070", "v6-040", "v6-164", "v6-074", "parting-shot", "v6-078", "v6-075", "v6-079"];
-SPECIES_DEX["dolpika"].movePool = ["thunderbolt", "thunder", "discharge", "v6-168", "v6-169", "charge-beam", "volt-switch", "v6-170", "v6-171", "v6-172", "v6-173", "wild-charge", "v6-174", "weather-ball", "v6-055", "hyper-voice", "quick-attack", "v6-175", "v6-176", "v6-167", "v6-177", "v6-178", "v6-084", "v6-083", "v6-179", "v6-180", "dazzling-gleam", "v6-005", "play-rough", "v6-003", "wood-hammer", "protect", "v6-017", "v6-018", "v6-116", "v6-107", "v6-181", "v6-073", "v6-080", "v6-182", "rain-dance", "sunny-day", "snowscape", "sandstorm", "v6-081", "v6-086", "thunder-wave", "v6-183", "v6-184", "v6-160", "v6-144"];
+SPECIES_DEX["dolpika"].movePool = ["thunderbolt", "thunder", "discharge", "v6-168", "v6-169", "charge-beam", "volt-switch", "v6-170", "v6-171", "v6-172", "v6-173", "wild-charge", "v6-174", "weather-ball", "hyper-voice", "quick-attack", "v6-175", "v6-176", "v6-167", "v6-177", "v6-178", "v6-084", "v6-083", "v6-179", "v6-180", "dazzling-gleam", "v6-005", "play-rough", "v6-003", "wood-hammer", "protect", "v6-017", "v6-018", "v6-116", "v6-107", "v6-181", "v6-073", "v6-080", "v6-182", "rain-dance", "sunny-day", "snowscape", "sandstorm", "v6-081", "v6-086", "thunder-wave", "v6-183", "v6-184", "v6-160", "v6-144"];
 
 const V6_LEARNSET_COUNTS = {
   "カリブライン": 54,
@@ -2617,7 +2617,7 @@ const V6_LEARNSET_COUNTS = {
   "アルケルケス": 30,
   "キャスルード": 39,
   "フルセユーア": 30,
-  "ドルピカ(ドルピカのすがた)": 51
+  "ドルピカ(ドルピカのすがた)": 50
 };
 const V6_TOTAL_UNIQUE_MOVES = new Set(Object.values(SPECIES_DEX).flatMap(s => s.movePool)).size;
 if (typeof DATA_PACK_COUNTS !== "undefined") { DATA_PACK_COUNTS.moves = Object.keys(MOVE_DEX).length; DATA_PACK_COUNTS.items = Object.keys(ITEM_DEX).length; }

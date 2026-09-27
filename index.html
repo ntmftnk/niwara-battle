@@ -11,7 +11,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <title>ニワラバトル v9.1.2</title>
+  <title>ニワラバトル v9.1.3</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -19,10 +19,10 @@
     <header class="app-header">
       <div>
         <h1>ニワラバトル</h1>
-        <p class="subtitle">v9.1.2：スマホ図鑑モーダル再修正 / 解決時交代技 / PWA</p>
+        <p class="subtitle">v9.1.3：ダメージ計算の公開情報保護 / 攻守入替 / ドルピカ調整</p>
       </div>
       <div class="pwa-runtime-status" aria-label="PWA状態">
-        <span id="pwa-version-badge" class="runtime-badge">v9.1.2</span>
+        <span id="pwa-version-badge" class="runtime-badge">v9.1.3</span>
         <span id="pwa-network-status" class="runtime-badge" aria-live="polite">オンライン</span>
       </div>
       <div class="header-actions">
@@ -342,7 +342,8 @@
       <div class="utility-modal-scroll" data-utility-scroll>
         <div class="damage-toolbar">
           <button id="damage-load-current" class="ghost-button" type="button">現在の対面を読み込む</button>
-          <span class="view-note">ゲーム本体と同じダメージ計算関数を使用します。対戦中は現在の天候・フィールド等も反映されます。</span>
+          <button id="damage-swap-sides" class="ghost-button" type="button">攻撃側 ↔ 防御側</button>
+          <span class="view-note">ゲーム本体と同じダメージ計算関数を使用します。対戦中の読み込みでは、相手の非公開情報（能力P・性格・未公開特性/持ち物/技）は取得しません。</span>
         </div>
         <div class="damage-grid">
           <section class="damage-side-card">
@@ -355,6 +356,7 @@
             <div class="damage-stat-points" id="damage-atk-points"></div>
             <label>攻撃側能力ランク<select id="damage-atk-stage"></select></label>
             <label>技<select id="damage-move"></select></label>
+            <div id="damage-atk-load-note" class="damage-load-note" aria-live="polite"></div>
           </section>
           <section class="damage-side-card">
             <h3>防御側</h3>
@@ -365,6 +367,7 @@
             <label>HP %<input id="damage-def-hp" type="number" min="1" max="100" value="100"></label>
             <div class="damage-stat-points" id="damage-def-points"></div>
             <label>防御側能力ランク<select id="damage-def-stage"></select></label>
+            <div id="damage-def-load-note" class="damage-load-note" aria-live="polite"></div>
           </section>
         </div>
         <div class="damage-actions">

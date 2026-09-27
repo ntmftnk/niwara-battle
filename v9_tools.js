@@ -1,5 +1,5 @@
 // ============================================================
-// ニワラバトル v9.1.2 utility tools
+// ニワラバトル v9.1.3 utility tools
 // - 図鑑
 // - ダメージ計算シミュレーター
 // ============================================================
@@ -139,37 +139,128 @@
     atkSpecies:$("damage-atk-species"),atkAbility:$("damage-atk-ability"),atkItem:$("damage-atk-item"),atkNature:$("damage-atk-nature"),atkHp:$("damage-atk-hp"),atkPoints:$("damage-atk-points"),atkStage:$("damage-atk-stage"),move:$("damage-move"),
     defSpecies:$("damage-def-species"),defAbility:$("damage-def-ability"),defItem:$("damage-def-item"),defNature:$("damage-def-nature"),defHp:$("damage-def-hp"),defPoints:$("damage-def-points"),defStage:$("damage-def-stage"),critical:$("damage-critical")
   };
+  const damageLoadNotes={atk:$("damage-atk-load-note"),def:$("damage-def-load-note")};
+  let loadedBattleSnapshots={atk:null,def:null};
+
   function option(value,label){const o=document.createElement("option");o.value=value;o.textContent=label;return o;}
   function populateBaseSelects(){
     const sp=speciesSorted();[ids.atkSpecies,ids.defSpecies].forEach(sel=>{if(!sel)return;sel.innerHTML="";sp.forEach(s=>sel.appendChild(option(s.id,`No.${String(s.dexNo??"-").padStart(3,"0")} ${s.name}`)));});
-    const items=Object.values(ITEM_DEX).slice().sort((a,b)=>a.name.localeCompare(b.name,"ja"));[ids.atkItem,ids.defItem].forEach(sel=>{if(!sel)return;sel.innerHTML="";items.forEach(i=>sel.appendChild(option(i.id,i.name)));});
-    [ids.atkNature,ids.defNature].forEach(sel=>{if(!sel)return;sel.innerHTML="";Object.keys(NATURES).forEach(n=>sel.appendChild(option(n,n)));sel.value="まじめ";});
+    const items=Object.values(ITEM_DEX).slice().sort((a,b)=>a.name.localeCompare(b.name,"ja"));[ids.atkItem,ids.defItem].forEach(sel=>{if(!sel)return;sel.innerHTML="";sel.appendChild(option("","持ち物を仮定して選択…"));items.forEach(i=>sel.appendChild(option(i.id,i.name)));sel.value="none";});
+    [ids.atkNature,ids.defNature].forEach(sel=>{if(!sel)return;sel.innerHTML="";sel.appendChild(option("","性格を仮定して選択…"));Object.keys(NATURES).forEach(n=>sel.appendChild(option(n,n)));sel.value="まじめ";});
     [ids.atkStage,ids.defStage].forEach(sel=>{if(!sel)return;sel.innerHTML="";for(let i=-6;i<=6;i++)sel.appendChild(option(String(i),i>0?`+${i}`:String(i)));sel.value="0";});
     [[ids.atkPoints,"atk"],[ids.defPoints,"def"]].forEach(([wrap,prefix])=>{if(!wrap)return;wrap.innerHTML="";statPairs.forEach(([key,label])=>{const l=document.createElement("label");l.innerHTML=`<span>${label}</span><input type="number" min="0" max="32" value="0" data-dmg-side="${prefix}" data-stat="${key}" aria-label="${prefix} ${label}能力P">`;wrap.appendChild(l);});});
     if(ids.atkSpecies&&ids.defSpecies){ids.atkSpecies.value=sp[0]?.id||"";ids.defSpecies.value=sp[1]?.id||sp[0]?.id||"";refreshSide("atk");refreshSide("def");}
   }
   function sideSpecies(side){return SPECIES_DEX[ids[side+"Species"]?.value];}
+  function prependUnknownOption(sel,label){
+    if(!sel)return;
+    let o=[...sel.options].find(x=>x.value==="");
+    if(!o){o=option("",label);sel.insertBefore(o,sel.firstChild);}else o.textContent=label;
+    sel.value="";
+  }
   function refreshSide(side){
     const s=sideSpecies(side),abil=ids[side+"Ability"];if(!s||!abil)return;const prev=abil.value;abil.innerHTML="";s.abilities.forEach(a=>abil.appendChild(option(a.id,a.name)));if([...abil.options].some(o=>o.value===prev))abil.value=prev;
-    if(side==="atk"){const prevMove=ids.move.value;ids.move.innerHTML="";s.movePool.map(id=>MOVE_DEX[id]).filter(Boolean).forEach(m=>ids.move.appendChild(option(m.id,`${m.name}（${m.type}/${catName(m.category)}）`)));if([...ids.move.options].some(o=>o.value===prevMove))ids.move.value=prevMove;}
+    if(side==="atk"){
+      const prevMove=ids.move.value;ids.move.innerHTML="";ids.move.appendChild(option("","技を選択…"));
+      s.movePool.map(id=>MOVE_DEX[id]).filter(Boolean).forEach(m=>ids.move.appendChild(option(m.id,`${m.name}（${m.type}/${catName(m.category)}）`)));
+      if([...ids.move.options].some(o=>o.value===prevMove))ids.move.value=prevMove;else ids.move.value="";
+    }
   }
   function collectPoints(side){const out={};document.querySelectorAll(`[data-dmg-side="${side}"]`).forEach(i=>out[i.dataset.stat]=Math.max(0,Math.min(32,Number(i.value)||0)));return out;}
   function pointsTotal(p){return Object.values(p).reduce((a,b)=>a+b,0);}
-  function makeSet(side){const s=sideSpecies(side);return{speciesId:s.id,abilityId:ids[side+"Ability"].value,itemId:ids[side+"Item"].value,nature:ids[side+"Nature"].value,statPoints:collectPoints(side),moves:side==="atk"?[ids.move.value]:[s.movePool[0]].filter(Boolean)};}
-  function setSideFromPokemon(side,p){
-    if(!p)return;ids[side+"Species"].value=p.id;refreshSide(side);ids[side+"Ability"].value=p.ability?.id||ids[side+"Ability"].value;ids[side+"Item"].value=p.item?.id||"none";ids[side+"Nature"].value=p.nature||"まじめ";ids[side+"Hp"].value=Math.max(1,Math.round(p.hp/p.maxHP*100));
-    document.querySelectorAll(`[data-dmg-side="${side}"]`).forEach(i=>i.value=p.statPoints?.[i.dataset.stat]??0);
-    if(side==="atk"&&p.moves?.[0]){if([...ids.move.options].some(o=>o.value===p.moves[0].id))ids.move.value=p.moves[0].id;}
+  function makeSet(side){
+    const s=sideSpecies(side);if(!s)throw new Error(`${side==="atk"?"攻撃側":"防御側"}のポケモンを選んでください。`);
+    const abilityId=ids[side+"Ability"].value,itemId=ids[side+"Item"].value,nature=ids[side+"Nature"].value;
+    if(!abilityId)throw new Error(`${side==="atk"?"攻撃側":"防御側"}の特性は非公開です。計算上の仮定を選んでください。`);
+    if(!itemId)throw new Error(`${side==="atk"?"攻撃側":"防御側"}の持ち物は非公開です。「なし」を含め、計算上の仮定を選んでください。`);
+    if(!nature)throw new Error(`${side==="atk"?"攻撃側":"防御側"}の性格は非公開です。計算上の仮定を選んでください。`);
+    const moveId=side==="atk"?ids.move.value:s.movePool[0];
+    return{speciesId:s.id,abilityId,itemId,nature,statPoints:collectPoints(side),moves:[moveId].filter(Boolean)};
+  }
+  function setPoints(side,points,privateInfo){
+    document.querySelectorAll(`[data-dmg-side="${side}"]`).forEach(i=>{
+      i.value=privateInfo?String(points?.[i.dataset.stat]??0):"";
+      i.placeholder=privateInfo?"0":"0（仮定）";
+    });
+  }
+  function setKnownOrUnknown(select,value,unknownLabel){
+    if(value&&[...select.options].some(o=>o.value===value)){select.value=value;return true;}
+    prependUnknownOption(select,unknownLabel);return false;
+  }
+  function setLoadNote(side,snapshot){
+    const el=damageLoadNotes[side];if(!el)return;
+    el.classList.toggle("is-private",Boolean(snapshot?.privateInfo));
+    el.classList.toggle("is-public",Boolean(snapshot&&!snapshot.privateInfo));
+    if(!snapshot){el.textContent="";return;}
+    if(snapshot.privateInfo){el.textContent="自分側の非公開情報を含めて現在値を反映しました。";return;}
+    const known=[];if(snapshot.abilityId)known.push("特性");if(snapshot.itemId)known.push("持ち物");if(snapshot.moveIds?.length)known.push("技");
+    el.textContent=`相手側は公開情報のみ反映：HP%・能力ランク${known.length?`・公開済み${known.join("/ ")}`:""}。能力Pと性格、未公開の特性・持ち物・技は取得していません。空欄の能力Pは計算時0として扱います。`;
+  }
+  function selectSnapshotMove(snapshot){
+    if(!snapshot||!ids.move)return false;
+    const id=(snapshot.moveIds||[]).find(moveId=>[...ids.move.options].some(o=>o.value===moveId));
+    ids.move.value=id||"";return Boolean(id);
+  }
+  function setSideFromSnapshot(side,snapshot){
+    if(!snapshot)return;
+    ids[side+"Species"].value=snapshot.speciesId;refreshSide(side);
+    if(snapshot.abilityId)setKnownOrUnknown(ids[side+"Ability"],snapshot.abilityId,"特性は未公開（仮定して選択）");else prependUnknownOption(ids[side+"Ability"],"特性は未公開（仮定して選択）");
+    if(snapshot.itemId&&[...ids[side+"Item"].options].some(o=>o.value===snapshot.itemId))ids[side+"Item"].value=snapshot.itemId;else ids[side+"Item"].value="";
+    ids[side+"Nature"].value=snapshot.nature&&NATURES[snapshot.nature]?snapshot.nature:"";
+    ids[side+"Hp"].value=Math.max(1,Math.min(100,Number(snapshot.hpPercent)||100));
+    setPoints(side,snapshot.statPoints,snapshot.privateInfo);
+    loadedBattleSnapshots[side]=snapshot;
+    if(side==="atk")selectSnapshotMove(snapshot);
+    setLoadNote(side,snapshot);
+  }
+  function syncLoadedStagesToMove(){
+    const move=MOVE_DEX[ids.move?.value];if(!move||move.category==="status")return;
+    const atkStat=move.category==="physical"?"attack":"specialAttack",defStat=move.category==="physical"?"defense":"specialDefense";
+    const a=loadedBattleSnapshots.atk,d=loadedBattleSnapshots.def;
+    if(a?.stages&&Number.isFinite(Number(a.stages[atkStat])))ids.atkStage.value=String(a.stages[atkStat]);
+    if(d?.stages&&Number.isFinite(Number(d.stages[defStat])))ids.defStage.value=String(d.stages[defStat]);
   }
   function loadCurrent(){
-    try{const a=getPlayerPokemon?.(),d=getEnemyPokemon?.();if(!a||!d)throw new Error();setSideFromPokemon("atk",a);setSideFromPokemon("def",d);damageResult.textContent="現在のプレイヤーA対プレイヤーBの場を読み込みました。技などを必要に応じて変更してください。";}catch(_){damageResult.textContent="対戦中のポケモンを取得できません。編成画面では手動で条件を指定してください。";}
+    try{
+      const ctx=window.__PBV8GetDamageBattleContext?.();if(!ctx?.player||!ctx?.enemy)throw new Error("対戦中の公開情報を取得できません");
+      loadedBattleSnapshots={atk:null,def:null};
+      setSideFromSnapshot("atk",ctx.player);setSideFromSnapshot("def",ctx.enemy);syncLoadedStagesToMove();
+      const perspective=ctx.privateSide==="player"?"プレイヤーA":ctx.privateSide==="enemy"?"プレイヤーB":"公開視点";
+      damageResult.textContent=`現在の対面を${perspective}基準で読み込みました。相手の非公開情報は読み込んでいません。必要な非公開項目は仮定して選択してください。`;
+    }catch(e){console.warn(e);damageResult.textContent="対戦中の公開情報を取得できません。編成画面では手動で条件を指定してください。";}
+  }
+  function readSideForm(side){
+    const pts={};document.querySelectorAll(`[data-dmg-side="${side}"]`).forEach(i=>pts[i.dataset.stat]=i.value);
+    return{speciesId:ids[side+"Species"].value,abilityId:ids[side+"Ability"].value,itemId:ids[side+"Item"].value,nature:ids[side+"Nature"].value,hp:ids[side+"Hp"].value,stage:ids[side+"Stage"].value,points:pts};
+  }
+  function applySideForm(side,state){
+    ids[side+"Species"].value=state.speciesId;refreshSide(side);
+    if(state.abilityId&&[...ids[side+"Ability"].options].some(o=>o.value===state.abilityId))ids[side+"Ability"].value=state.abilityId;else prependUnknownOption(ids[side+"Ability"],"特性を仮定して選択…");
+    ids[side+"Item"].value=[...ids[side+"Item"].options].some(o=>o.value===state.itemId)?state.itemId:"";
+    ids[side+"Nature"].value=[...ids[side+"Nature"].options].some(o=>o.value===state.nature)?state.nature:"";
+    ids[side+"Hp"].value=state.hp;
+    ids[side+"Stage"].value=state.stage;
+    document.querySelectorAll(`[data-dmg-side="${side}"]`).forEach(i=>i.value=state.points[i.dataset.stat]??"");
+  }
+  function swapDamageSides(){
+    const a=readSideForm("atk"),d=readSideForm("def"),oldMove=ids.move.value;
+    const aSnap=loadedBattleSnapshots.atk,dSnap=loadedBattleSnapshots.def;
+    const aNote=damageLoadNotes.atk?.textContent||"",dNote=damageLoadNotes.def?.textContent||"";
+    const aClass=damageLoadNotes.atk?.className||"damage-load-note",dClass=damageLoadNotes.def?.className||"damage-load-note";
+    applySideForm("atk",d);applySideForm("def",a);
+    loadedBattleSnapshots={atk:dSnap,def:aSnap};
+    if(dSnap)selectSnapshotMove(dSnap);else if([...ids.move.options].some(o=>o.value===oldMove))ids.move.value=oldMove;else ids.move.value="";
+    if(damageLoadNotes.atk){damageLoadNotes.atk.textContent=dNote;damageLoadNotes.atk.className=dClass;}
+    if(damageLoadNotes.def){damageLoadNotes.def.textContent=aNote;damageLoadNotes.def.className=aClass;}
+    syncLoadedStagesToMove();
+    damageResult.textContent="攻撃側と防御側を入れ替えました。新しい攻撃側の技を確認してから計算してください。";
   }
   function calcDamage(){
     try{
+      const move=MOVE_DEX[ids.move.value];if(!move){throw new Error("技を選んでください。");}if(move.category==="status"){damageResult.innerHTML=`<strong>${esc(move.name)}</strong> は変化技のため直接ダメージはありません。`;return;}
       const atkSet=makeSet("atk"),defSet=makeSet("def");const at=pointsTotal(atkSet.statPoints),dt=pointsTotal(defSet.statPoints);if(at>66||dt>66){damageResult.innerHTML=`<strong>能力Pエラー</strong><br>各ポケモンの能力P合計は66以下にしてください。（攻撃側 ${at} / 防御側 ${dt}）`;return;}
       const attacker=createPokemon(atkSet,0),defender=createPokemon(defSet,0);attacker.side="player";defender.side="enemy";
       attacker.hp=Math.max(1,Math.floor(attacker.maxHP*Math.max(1,Math.min(100,Number(ids.atkHp.value)||100))/100));defender.hp=Math.max(1,Math.floor(defender.maxHP*Math.max(1,Math.min(100,Number(ids.defHp.value)||100))/100));
-      const move=MOVE_DEX[ids.move.value];if(!move){throw new Error("技が選択されていません");}if(move.category==="status"){damageResult.innerHTML=`<strong>${esc(move.name)}</strong> は変化技のため直接ダメージはありません。`;return;}
       const atkStat=move.category==="physical"?"attack":"specialAttack",defStat=move.category==="physical"?"defense":"specialDefense";attacker.stages[atkStat]=Number(ids.atkStage.value)||0;defender.stages[defStat]=Number(ids.defStage.value)||0;
       const crit=Boolean(ids.critical.checked);const minR=calculateDamage(attacker,defender,move,{randomFactor:0.85,forceCritical:crit});const maxR=calculateDamage(attacker,defender,move,{randomFactor:1,forceCritical:crit});let min=minR.damage,max=maxR.damage;let berry="";
       if(typeof v6CanTriggerResistBerry==="function"&&v6CanTriggerResistBerry(defender,move,minR.effectiveness)){min=Math.max(1,Math.floor(min*.5));max=Math.max(1,Math.floor(max*.5));berry=`<br>${esc(defender.item.name)}が発動するため半減を反映。`;}
@@ -180,9 +271,9 @@
   function openDamage(){openModal(damageModal);}
 
   $("open-pokedex-button")?.addEventListener("click",openDex);$("battle-pokedex-button")?.addEventListener("click",openDex);$("pokedex-close")?.addEventListener("click",()=>closeModal(pokedexModal));pokedexModal?.querySelector("[data-close-pokedex]")?.addEventListener("click",()=>closeModal(pokedexModal));pokedexSearch?.addEventListener("input",renderDexList);
-  $("open-damage-calc-button")?.addEventListener("click",openDamage);$("battle-damage-calc-button")?.addEventListener("click",openDamage);$("damage-calc-close")?.addEventListener("click",()=>closeModal(damageModal));damageModal?.querySelector("[data-close-damage-calc]")?.addEventListener("click",()=>closeModal(damageModal));$("damage-load-current")?.addEventListener("click",loadCurrent);$("damage-calculate")?.addEventListener("click",calcDamage);
-  ids.atkSpecies?.addEventListener("change",()=>refreshSide("atk"));ids.defSpecies?.addEventListener("change",()=>refreshSide("def"));
+  $("open-damage-calc-button")?.addEventListener("click",openDamage);$("battle-damage-calc-button")?.addEventListener("click",openDamage);$("damage-calc-close")?.addEventListener("click",()=>closeModal(damageModal));damageModal?.querySelector("[data-close-damage-calc]")?.addEventListener("click",()=>closeModal(damageModal));$("damage-load-current")?.addEventListener("click",loadCurrent);$("damage-swap-sides")?.addEventListener("click",swapDamageSides);$("damage-calculate")?.addEventListener("click",calcDamage);
+  ids.atkSpecies?.addEventListener("change",()=>{loadedBattleSnapshots.atk=null;setLoadNote("atk",null);refreshSide("atk");});ids.defSpecies?.addEventListener("change",()=>{loadedBattleSnapshots.def=null;setLoadNote("def",null);refreshSide("def");});ids.move?.addEventListener("change",syncLoadedStagesToMove);
   document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeModal(pokedexModal);closeModal(damageModal);}});
   populateBaseSelects();renderDexList();renderDexDetail();
-  window.__PBV9Tools={openDex,openDamage,calcDamage,loadCurrent};
+  window.__PBV9Tools={openDex,openDamage,calcDamage,loadCurrent,swapDamageSides};
 })();

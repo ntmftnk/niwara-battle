@@ -10,7 +10,7 @@
 (function () {
   "use strict";
 
-  const V8_VERSION = "9.1";
+  const V8_VERSION = "9.1.3";
   const V8_PARTY_LIBRARY_KEY = "niwaraBattlePartyLibraryV8";
   const V8_MAX_PARTIES = 30;
 
@@ -918,7 +918,7 @@
     const labels={A:"プレイヤーA視点",B:"プレイヤーB視点",spectator:"観戦視点",god:"神視点"};
     const rosterLines=(side,roster)=>roster.map((set,i)=>`${i+1}. ${v8SelectionSetText(set,side,viewMode)}`);
     const lines=[
-      `【ニワラバトル v9.1 見せ合い状況コピー】`,
+      `【ニワラバトル v9.1.3 見せ合い状況コピー】`,
       `視点: ${labels[viewMode]}`,
       `対戦形式: ${v8BattleMode==="pvp"?"2人対戦":"対CPU戦"}`,
       `選出操作中: プレイヤー${isB?"B":"A"}`,
@@ -1261,7 +1261,7 @@
     else if(viewMode==="A") commandText=v8CommandOptionsText("player");
     else if(viewMode==="B"&&v8BattleMode==="pvp") commandText=v8CommandOptionsText("enemy");
     const lines=[
-      `【ニワラバトル v9.1 状況コピー】`,
+      `【ニワラバトル v9.1.3 状況コピー】`,
       `ターン: ${turnNumber}`,
       `視点: ${v8ViewLabel(viewMode)}`,
       `対戦形式: ${v8BattleMode==="pvp"?"2人対戦":"対CPU戦"}`,
@@ -1334,6 +1334,50 @@
   function v8HidePass(){v8PassOverlay.classList.add("hidden");v8PassOverlay.setAttribute("aria-hidden","true");}
   function v8ControlSide(){if(v8ReplacementState?.choosingSide)return v8ReplacementState.choosingSide;if(v8PivotChoicePending?.side)return v8PivotChoicePending.side;return v8ActionPhase;}
   function v8HasBench(side){return v8GetTeam(side).some((p,i)=>i!==v8GetIndex(side)&&p.hp>0);}
+
+  // v9.1.3: ダメージ計算ツールへ渡す戦況は、操作者から見える情報だけに限定する。
+  // 生のPokemonオブジェクトは返さず、相手の能力P・性格・未公開特性/持ち物/技を遮断する。
+  function v8DamagePrivateSide(){
+    // CPU戦ではプレイヤーAだけが自分側。表示視点をB/神へ切り替えてもCPU側の非公開値は渡さない。
+    if(v8BattleMode!=="pvp")return "player";
+    // 2人対戦は「現在その端末を操作している側」と表示視点が一致するときだけ自分情報を渡す。
+    // 神/観戦視点や行動解決中に視点だけ切り替えても、相手の非公開値は取得できない。
+    let control=null;
+    if(v8ReplacementState?.choosingSide)control=v8ReplacementState.choosingSide;
+    else if(v8PivotChoicePending?.side)control=v8PivotChoicePending.side;
+    else if(!v8ResolvingTurn&&!battleOver)control=v8ActionPhase;
+    if(control==="player"&&v8ViewMode==="A")return "player";
+    if(control==="enemy"&&v8ViewMode==="B")return "enemy";
+    return null;
+  }
+  function v8DamageSnapshot(p,side,privateSide){
+    if(!p)return null;
+    const k=v8EnsureKnowledge(p),privateInfo=privateSide===side;
+    return {
+      side,
+      speciesId:p.id,
+      hpPercent:v8HPPercent(p),
+      stages:{...p.stages},
+      privateInfo,
+      abilityId:(privateInfo||k.ability)?p.ability?.id:null,
+      itemId:(privateInfo||k.item)?(p.itemConsumed?"none":p.item?.id):null,
+      nature:privateInfo?p.nature:null,
+      statPoints:privateInfo?{...p.statPoints}:null,
+      moveIds:privateInfo?p.moves.map(m=>m.id):[...k.moves]
+    };
+  }
+  window.__PBV8GetDamageBattleContext=function(){
+    const a=getPlayerPokemon?.(),b=getEnemyPokemon?.();
+    if(!a||!b)return null;
+    const privateSide=v8DamagePrivateSide();
+    return {
+      battleMode:v8BattleMode,
+      viewMode:v8ViewMode,
+      privateSide,
+      player:v8DamageSnapshot(a,"player",privateSide),
+      enemy:v8DamageSnapshot(b,"enemy",privateSide)
+    };
+  };
 
   function v8BeginPhase(side){
     if(battleOver||awaitingPlayerSwitch)return; v8ActionPhase=side; v8ViewMode=side==="player"?"A":"B"; renderAll();
@@ -1585,7 +1629,7 @@
   // ------------------------------------------------------------
   // 起動
   // ------------------------------------------------------------
-  v8LoadPartyLibrary();v8RenderPartyLibrary();v8RenderBattleSourceOptions();renderBuilder();renderDataCounts();setBuilderMessage(`v${V8_VERSION}：PWA対応、オフライン起動、安全な更新、スマホUI最適化を追加しました。`,false);showScreen("builder");
+  v8LoadPartyLibrary();v8RenderPartyLibrary();v8RenderBattleSourceOptions();renderBuilder();renderDataCounts();setBuilderMessage(`v${V8_VERSION}：ダメージ計算の公開情報保護、攻守入替、ドルピカの習得技調整を追加しました。`,false);showScreen("builder");
 
   window.__PBV8={
     get savedParties(){return v8SavedParties;},buildStrongRandomTeam:v8BuildStrongRandomTeam,chooseCpuSelection:v8ChooseCpuSelection,validateTeam:v8ValidateTeam,
