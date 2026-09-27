@@ -11,7 +11,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <title>ニワラバトル v9.1.1</title>
+  <title>ニワラバトル v9.1</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -19,10 +19,10 @@
     <header class="app-header">
       <div>
         <h1>ニワラバトル</h1>
-        <p class="subtitle">v9.1.1：モバイル図鑑・ツール操作性修正 / 解決時交代技 / PWA</p>
+        <p class="subtitle">v9.1：解決時交代技 / 図鑑 / ダメージ計算 / PWA</p>
       </div>
       <div class="pwa-runtime-status" aria-label="PWA状態">
-        <span id="pwa-version-badge" class="runtime-badge">v9.1.1</span>
+        <span id="pwa-version-badge" class="runtime-badge">v9.1</span>
         <span id="pwa-network-status" class="runtime-badge" aria-live="polite">オンライン</span>
       </div>
       <div class="header-actions">
@@ -313,7 +313,7 @@
   </div>
 
 
-  <div id="pokedex-modal" class="move-modal utility-modal hidden" aria-hidden="true">
+  <div id="pokedex-modal" class="move-modal hidden" aria-hidden="true">
     <div class="move-modal-backdrop" data-close-pokedex></div>
     <section class="move-modal-card utility-modal-card" role="dialog" aria-modal="true" aria-labelledby="pokedex-title">
       <div class="move-modal-header">
@@ -330,7 +330,7 @@
     </section>
   </div>
 
-  <div id="damage-calc-modal" class="move-modal utility-modal hidden" aria-hidden="true">
+  <div id="damage-calc-modal" class="move-modal hidden" aria-hidden="true">
     <div class="move-modal-backdrop" data-close-damage-calc></div>
     <section class="move-modal-card utility-modal-card" role="dialog" aria-modal="true" aria-labelledby="damage-calc-title">
       <div class="move-modal-header">
@@ -396,6 +396,30 @@
   <script src="v7_2_patch.js"></script>
   <script src="v8_patch.js"></script>
   <script src="v9_tools.js"></script>
+<script>
+(async function(){
+ const out=[]; const ok=(name,cond,extra='')=>out.push(`${cond?'PASS':'FAIL'} ${name}${extra?' '+extra:''}`);
+ try{
+  ok('pokedex species count',Object.keys(SPECIES_DEX).length===25,String(Object.keys(SPECIES_DEX).length));
+  document.getElementById('open-pokedex-button').click(); ok('pokedex opens',!document.getElementById('pokedex-modal').classList.contains('hidden'));
+  ok('pokedex entries',document.querySelectorAll('.pokedex-entry').length===25,String(document.querySelectorAll('.pokedex-entry').length));
+  document.getElementById('pokedex-close').click();
+  document.getElementById('open-damage-calc-button').click(); document.getElementById('damage-calculate').click();
+  ok('damage result',/ダメージ/.test(document.getElementById('damage-result').textContent),document.getElementById('damage-result').textContent.slice(0,80));
+  document.getElementById('damage-calc-close').click();
+  function mk(id,pivotId){const s=SPECIES_DEX[id];const moves=[pivotId,...s.movePool.filter(x=>x!==pivotId)].filter(Boolean).slice(0,4);return{speciesId:id,abilityId:s.abilities[0].id,itemId:'none',nature:'まじめ',statPoints:{hp:0,attack:0,defense:0,specialAttack:0,specialDefense:0,speed:0},moves};}
+  const a=[mk('wolf','v6-039'),mk('karibu','beast-dash'),mk('babhat','flip-turn')];
+  const b=[mk('goukain','flip-turn'),mk('peetom','volt-switch'),mk('catamugri','u-turn')];
+  __PBV8._debugStartPvp(a,b); const bm=getEnemyPokemon().moves.find(m=>!m.pivot)||getEnemyPokemon().moves[0];
+  __PBV8._debugPvpTurn('v6-039',bm.id);
+  ok('fast pivot pauses before target choice',turnNumber===1 && !document.getElementById('pass-overlay').classList.contains('hidden'),`turn=${turnNumber}`);
+  document.getElementById('pass-continue-button').click();
+  const btn=[...document.querySelectorAll('#switch-container button')].find((x,i)=>i!==playerActiveIndex&&!x.disabled); ok('pivot target buttons enabled',!!btn); if(btn)btn.click();
+  await new Promise(r=>setTimeout(r,80)); ok('turn continues after target choice',turnNumber===2,`turn=${turnNumber}`);
+ }catch(e){out.push('ERROR '+e.stack);}
+ const pre=document.createElement('pre');pre.id='test-output';pre.textContent=out.join('\n');document.body.prepend(pre);
+})();
+</script>
   <script src="pwa.js"></script>
 </body>
 </html>

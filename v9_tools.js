@@ -1,5 +1,5 @@
 // ============================================================
-// ニワラバトル v9.1 utility tools
+// ニワラバトル v9.1.1 utility tools
 // - 図鑑
 // - ダメージ計算シミュレーター
 // ============================================================
@@ -11,8 +11,49 @@
   const damageModal=$("damage-calc-modal"), damageResult=$("damage-result");
   let selectedSpeciesId=Object.values(SPECIES_DEX).sort((a,b)=>(a.dexNo||9999)-(b.dexNo||9999))[0]?.id||null;
 
-  function openModal(el){if(!el)return;el.classList.remove("hidden");el.setAttribute("aria-hidden","false");}
-  function closeModal(el){if(!el)return;el.classList.add("hidden");el.setAttribute("aria-hidden","true");}
+  // iOS / standalone PWA では overflow:hidden だけだと背景が動くことがあるため、
+  // body を現在位置で固定してモーダル内だけをスクロールさせる。
+  const managedOpenModals=new Set();
+  let lockedScrollY=0;
+  function lockPageScroll(){
+    if(managedOpenModals.size!==1)return;
+    lockedScrollY=window.scrollY||window.pageYOffset||0;
+    document.documentElement.classList.add("utility-modal-open");
+    document.body.classList.add("utility-modal-open");
+    document.body.style.position="fixed";
+    document.body.style.top=`-${lockedScrollY}px`;
+    document.body.style.left="0";
+    document.body.style.right="0";
+    document.body.style.width="100%";
+  }
+  function unlockPageScroll(){
+    if(managedOpenModals.size!==0)return;
+    document.documentElement.classList.remove("utility-modal-open");
+    document.body.classList.remove("utility-modal-open");
+    document.body.style.position="";
+    document.body.style.top="";
+    document.body.style.left="";
+    document.body.style.right="";
+    document.body.style.width="";
+    window.scrollTo(0,lockedScrollY);
+  }
+  function openModal(el){
+    if(!el)return;
+    const wasOpen=!el.classList.contains("hidden");
+    el.classList.remove("hidden");
+    el.setAttribute("aria-hidden","false");
+    if(!wasOpen){managedOpenModals.add(el);lockPageScroll();}
+    // 前回下まで読んだ状態を引き継がず、常に閉じるボタンが見える位置から開始。
+    const card=el.querySelector(".utility-modal-card");
+    if(card)card.scrollTop=0;
+  }
+  function closeModal(el){
+    if(!el)return;
+    const wasOpen=!el.classList.contains("hidden");
+    el.classList.add("hidden");
+    el.setAttribute("aria-hidden","true");
+    if(wasOpen){managedOpenModals.delete(el);unlockPageScroll();}
+  }
   function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
   function catName(c){return c==="physical"?"物理":c==="special"?"特殊":"変化";}
   const statPairs=[["hp","H"],["attack","A"],["defense","B"],["specialAttack","C"],["specialDefense","D"],["speed","S"]];

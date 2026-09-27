@@ -703,3 +703,98 @@ button,.primary-button,.ghost-button,.dark-button,.move-button,.switch-button{to
   .damage-grid{grid-template-columns:1fr}.damage-side-card label{grid-template-columns:92px 1fr}.utility-modal-card{width:100vw;max-height:100dvh;border-radius:0}
   .dex-move-table-wrap{max-height:42vh}
 }
+
+
+/* ============================================================
+   v9.1.1 Mobile utility modal hardening
+   - iOS/PWA background scroll lock
+   - safe-area-aware sticky close button
+   - modal-only scroll / overscroll containment
+   ============================================================ */
+html.utility-modal-open,
+body.utility-modal-open{
+  overflow:hidden!important;
+  overscroll-behavior:none;
+}
+.utility-modal{
+  overscroll-behavior:contain;
+}
+.utility-modal .utility-modal-card{
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+}
+.utility-modal .move-modal-header{
+  position:sticky;
+  top:0;
+  z-index:20;
+  background:#fff;
+}
+#pokedex-close,#damage-calc-close{
+  flex:0 0 auto;
+  min-width:72px;
+  min-height:48px;
+  touch-action:manipulation;
+}
+.pokedex-list,.pokedex-detail,.dex-move-table-wrap{
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+}
+
+@media (max-width:760px){
+  .utility-modal{
+    padding:0;
+    place-items:stretch;
+  }
+  .utility-modal .utility-modal-card{
+    width:100vw;
+    height:100dvh;
+    max-width:none;
+    max-height:100dvh;
+    margin:0;
+    border-radius:0;
+    padding:
+      max(10px,env(safe-area-inset-top))
+      max(12px,env(safe-area-inset-right))
+      max(12px,env(safe-area-inset-bottom))
+      max(12px,env(safe-area-inset-left));
+    overflow:auto;
+    box-sizing:border-box;
+  }
+  .utility-modal .move-modal-header{
+    top:0;
+    margin:
+      0
+      calc(-1 * max(12px,env(safe-area-inset-right)))
+      14px
+      calc(-1 * max(12px,env(safe-area-inset-left)));
+    padding:
+      max(12px,calc(env(safe-area-inset-top) + 8px))
+      max(12px,env(safe-area-inset-right))
+      12px
+      max(12px,env(safe-area-inset-left));
+    box-shadow:0 2px 8px rgba(0,0,0,.08);
+  }
+  .utility-modal .move-modal-header h2{
+    font-size:21px;
+    line-height:1.25;
+  }
+  #pokedex-close,#damage-calc-close{
+    position:relative;
+    z-index:25;
+    min-width:78px;
+    min-height:48px;
+    font-weight:800;
+  }
+  .pokedex-layout{
+    min-height:0;
+  }
+  .pokedex-list{
+    max-height:28dvh;
+  }
+  .pokedex-detail{
+    padding-bottom:max(18px,env(safe-area-inset-bottom));
+  }
+  .dex-move-table-wrap{
+    max-height:none;
+  }
+}
