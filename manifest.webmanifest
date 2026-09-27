@@ -2,7 +2,7 @@
   "id": "./",
   "name": "ニワラバトル",
   "short_name": "ニワラバトル",
-  "description": "ニワラ地方のポケモンで遊べる対戦・図鑑・環境研究対応のPWAバトルシミュレーター",
+  "description": "ニワラ地方のポケモンで遊べるシングル・ダブル・トリプル・6vs6・タッグ・図鑑・環境研究対応PWA",
   "lang": "ja",
   "start_url": "./index.html",
   "scope": "./",

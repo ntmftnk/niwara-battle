@@ -1,0 +1,51 @@
+ニワラバトル v12 アーキテクチャ
+================================
+
+app-config.js
+  バージョンと永続キーの正本
+
+game-data.js
+  種族 / 技 / 持ち物 / 性格 / タイプ相性などの共有データ
+
+game.js
+  従来シングル、編成、保存、図鑑基本UI、ダメージ計算、素早さ比較
+
+format-engine.js
+  v12非シングルのライブ対戦
+  - double
+  - triple
+  - full6
+  - tag
+  既存シングルを置き換えず、battle-format-selectがsingle以外の時だけ起動
+
+sim-core.js
+  DOM非依存の環境研究コア
+  5形式をformatパラメータで切り替え
+  ポケモン別の技採用/使用、持ち物、特性、対面を集計
+
+sim-worker.js
+  Web Workerエントリ
+
+sim-manager.js
+  Worker並列管理、IndexedDB、途中保存、履歴、比較、CSV/JSON
+
+pokedex-research.js
+  図鑑と環境研究DBを接続
+  選択中ポケモンの形式別統計・対面結果を描画
+
+pwa.js / sw.js
+  PWAインストール、更新検知、オフラインアプリシェル
+
+manifest.webmanifest / icons/
+  PWAメタデータ・アイコン
+
+公開情報設計
+- ライブマルチCPUは、相手の評価時に種族・HP%・公開状態・公開ランク・公開済み特性/持ち物だけをモデル化する
+- 相手の実際の能力P・性格・未公開技/特性/持ち物をAI評価へ渡さない
+- 環境研究CPUも相手側はneutral/public modelで評価する
+
+互換性
+- partyLibraryKey: niwaraBattlePartyLibraryV8
+- teamStorageKey: niwaraBattleTeamV5
+- research DB: niwaraBattleResearchV11（DB version 2）
+  DB名は互換維持のためv11表記を継続

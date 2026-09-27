@@ -1,4 +1,4 @@
-/* ニワラバトル v11 environment simulation worker */
+/* ニワラバトル v12 environment simulation worker */
 importScripts('app-config.js','game-data.js','sim-core.js');
 self.onmessage = event => {
   const msg = event.data || {};

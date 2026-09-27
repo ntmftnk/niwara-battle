@@ -20,7 +20,7 @@
     <header class="app-header">
       <div>
         <h1>ニワラバトル</h1>
-        <p class="subtitle"><span data-app-version></span>：v11 環境研究 / 高速CPU自己対戦・統計分析</p>
+        <p class="subtitle"><span data-app-version></span>：v12 マルチバトル / タッグ / フォーマット別環境研究・詳細図鑑</p>
       </div>
       <div class="pwa-runtime-status" aria-label="PWA状態">
         <span id="pwa-version-badge" class="runtime-badge" data-app-version></span>
@@ -117,7 +117,17 @@
       </div>
       <div class="mode-grid">
         <label class="mode-card">
-          <span>対戦形式</span>
+          <span>バトル形式</span>
+          <select id="battle-format-select">
+            <option value="single">シングル（6→3）</option>
+            <option value="double">ダブル（6→4 / 場2体）</option>
+            <option value="triple">トリプル（6→6 / 場3体）</option>
+            <option value="full6">6vs6（6体 / 場1体）</option>
+            <option value="tag">タッグ（4人 / 各3体）</option>
+          </select>
+        </label>
+        <label class="mode-card">
+          <span>対戦モード</span>
           <select id="battle-mode-select">
             <option value="cpu">対CPU戦</option>
             <option value="cpu-cpu">CPU vs CPU（観戦）</option>
@@ -149,6 +159,7 @@
           </select>
         </label>
       </div>
+      <section id="tag-participant-config" class="tag-participant-config hidden" aria-label="タッグ参加者設定"></section>
       <div id="mode-help-note" class="notice">CPUは構築・選出・対戦を自動で行います。難易度が上がっても、相手の未公開情報は参照しません。</div>
       <div class="bottom-action-bar">
         <span></span>
@@ -168,12 +179,13 @@
       <section class="research-config-panel">
         <div class="research-config-grid">
           <label><span>研究名</span><input id="research-run-name" type="text" maxlength="48" placeholder="例：ジュエルカッター調整後"></label>
+          <label><span>バトル形式</span><select id="research-format"><option value="single">シングル</option><option value="double">ダブル</option><option value="triple">トリプル</option><option value="full6">6vs6</option><option value="tag">タッグ</option></select></label>
           <label><span>目標試合数</span><input id="research-target" type="number" min="1" max="1000000" step="100" value="10000" inputmode="numeric"></label>
           <label><span>CPU A</span><select id="research-ai-a"><option value="normal">普通</option><option value="strong">強い</option><option value="very-strong" selected>非常に強い</option></select></label>
           <label><span>CPU B</span><select id="research-ai-b"><option value="normal">普通</option><option value="strong">強い</option><option value="very-strong" selected>非常に強い</option></select></label>
           <label><span>構築方式</span><select id="research-build-mode"><option value="auto" selected>難易度連動・強化構築</option><option value="mixed">準ランダム構築</option><option value="uniform">完全ランダム寄り</option></select></label>
           <label><span>並列Worker</span><select id="research-workers"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option><option value="6">6</option><option value="8">8</option></select></label>
-          <label><span>乱数シード</span><input id="research-seed" type="text" value="niwara-v11" maxlength="40"></label>
+          <label><span>乱数シード</span><input id="research-seed" type="text" value="niwara-v12" maxlength="40"></label>
           <label><span>最大ターン</span><input id="research-turn-limit" type="number" min="20" max="500" value="200" inputmode="numeric"></label>
         </div>
         <div class="research-quick-targets" aria-label="試合数プリセット">
@@ -203,18 +215,16 @@
       <details class="research-table-panel" open><summary>ポケモン使用率・選出率・勝率</summary>
         <div class="research-table-scroll"><table><thead><tr><th>ポケモン</th><th>構築採用率</th><th>選出率</th><th>先発率</th><th>選出時勝率</th><th>KO</th><th>被KO</th></tr></thead><tbody id="research-species-body"></tbody></table></div>
       </details>
-      <details class="research-table-panel"><summary>技使用統計</summary>
-        <div class="research-table-scroll"><table><thead><tr><th>技</th><th>使用回数</th><th>命中/有効率</th><th>平均ダメージ</th><th>KO</th></tr></thead><tbody id="research-moves-body"></tbody></table></div>
-      </details>
+      <div class="notice research-per-species-note">技・特性・持ち物の使用率は、下の「ポケモン別：技・特性・持ち物」でポケモンごとに表示します。</div>
       <details class="research-table-panel"><summary>よく使われる性格・能力P</summary>
         <div class="research-table-scroll"><table><thead><tr><th>ポケモン</th><th>性格</th><th>能力P H/A/B/C/D/S</th><th>採用数</th></tr></thead><tbody id="research-spreads-body"></tbody></table></div>
       </details>
-      <div class="research-two-columns">
-        <details class="research-table-panel"><summary>持ち物採用率</summary><div class="research-table-scroll"><table><thead><tr><th>持ち物</th><th>採用数</th><th>全枠比</th></tr></thead><tbody id="research-items-body"></tbody></table></div></details>
-        <details class="research-table-panel"><summary>特性採用率</summary><div class="research-table-scroll"><table><thead><tr><th>特性</th><th>採用数</th><th>全枠比</th></tr></thead><tbody id="research-abilities-body"></tbody></table></div></details>
-      </div>
+      <details class="research-table-panel" open><summary>ポケモン別：技・特性・持ち物</summary>
+        <div class="research-species-detail-toolbar"><label>ポケモン<select id="research-species-detail-select"></select></label><span id="research-species-detail-note" class="view-note"></span></div>
+        <div id="research-species-detail" class="research-species-detail"></div>
+      </details>
       <details class="research-table-panel"><summary>選出対面統計</summary>
-        <p class="research-note">勝利側の選出3匹と敗北側の選出3匹を組み合わせた参考対面統計です。直接1対1で殴り合った回数とは異なります。</p>
+        <p class="research-note">勝利側と敗北側の選出メンバーを組み合わせた参考対面統計です。形式ごとの選出数に応じて集計します。直接1対1で殴り合った回数とは異なります。</p>
         <div class="research-table-scroll"><table><thead><tr><th>組み合わせ</th><th>サンプル</th><th>勝率</th></tr></thead><tbody id="research-matchups-body"></tbody></table></div>
       </details>
 
@@ -278,6 +288,23 @@
         <button id="clear-selection-button" class="ghost-button">選出をやり直す</button>
         <button id="start-battle-button" class="primary-button" disabled>この3匹で確定</button>
       </div>
+    </section>
+
+    <section id="format-battle-screen" class="screen hidden format-battle-screen">
+      <div class="section-heading">
+        <div><h2 id="format-battle-title">マルチバトル</h2><p id="format-battle-subtitle">ダブル・トリプル・6vs6・タッグ用のバトル画面です。</p></div>
+        <button id="format-battle-exit" class="ghost-button danger-text" type="button">対戦を終了</button>
+      </div>
+      <div id="format-operator-banner" class="operator-banner" aria-live="polite"></div>
+      <section class="view-toolbar">
+        <div><strong>表示視点</strong><span class="view-note">人間参加者は自分側の完全情報、相手側は公開情報のみ。観戦は公開情報、神視点は完全情報です。</span></div>
+        <div class="view-toolbar-actions"><div id="format-view-buttons" class="view-buttons"></div><div class="battle-utility-buttons"><button id="format-pokedex-button" class="ghost-button" type="button">図鑑</button><button id="format-copy-log-button" class="ghost-button" type="button">状況＋ログをコピー</button></div></div>
+      </section>
+      <section id="format-autoplay-controls" class="cpu-cpu-controls hidden"><div><strong>自動対戦</strong> <span id="format-autoplay-status">進行中</span></div><div class="cpu-cpu-actions"><button id="format-autoplay-toggle" class="ghost-button" type="button">一時停止</button><button id="format-autoplay-step" class="ghost-button" type="button">1ターン進める</button><label>速度<select id="format-autoplay-speed"><option value="1200">ゆっくり</option><option value="650" selected>標準</option><option value="250">速い</option></select></label></div></section>
+      <section class="field-bar"><div><span class="field-label">形式</span><strong id="format-name-text">-</strong></div><div><span class="field-label">天候</span><strong id="format-weather-text">なし</strong></div><div><span class="field-label">フィールド</span><strong id="format-terrain-text">なし</strong></div><div><span class="field-label">ルーム</span><strong id="format-room-text">なし</strong></div><div><span class="field-label">ターン</span><strong id="format-turn-text">1</strong></div></section>
+      <div id="format-battle-board" class="format-battle-board"></div>
+      <section id="format-command-area" class="command-area"><h2>コマンド</h2><div id="format-command-content"></div></section>
+      <section class="log-area"><h2>バトルログ</h2><div id="format-battle-log" class="battle-log"></div></section>
     </section>
 
     <section id="battle-screen" class="screen hidden">
@@ -451,7 +478,37 @@
       <div class="utility-modal-scroll" data-utility-scroll>
         <div class="pokedex-layout">
           <aside class="pokedex-sidebar">
-            <input id="pokedex-search" type="search" placeholder="名前・図鑑番号で検索" aria-label="図鑑検索">
+            <input id="pokedex-search" type="search" placeholder="名前・図鑑番号・キーワード" aria-label="図鑑検索">
+            <details class="pokedex-advanced" open>
+              <summary>詳細検索</summary>
+              <div class="pokedex-filter-two-col">
+                <label>タイプ1<select id="pokedex-filter-type"><option value="">すべて</option></select></label>
+                <label>タイプ2<select id="pokedex-filter-type2"><option value="">指定なし</option></select></label>
+              </div>
+              <label>特性<select id="pokedex-filter-ability"><option value="">すべて</option></select></label>
+              <label>覚える技<select id="pokedex-filter-move"><option value="">すべて</option></select></label>
+              <div class="pokedex-filter-two-col">
+                <label>合計種族値≧<input id="pokedex-min-bst" type="number" min="0" max="999" placeholder="0"></label>
+                <label>合計種族値≦<input id="pokedex-max-bst" type="number" min="0" max="999" placeholder="指定なし"></label>
+              </div>
+              <div class="pokedex-stat-filter-grid">
+                <label>H≧<input id="pokedex-min-hp" type="number" min="0" max="255" placeholder="0"></label>
+                <label>H≦<input id="pokedex-max-hp" type="number" min="0" max="255" placeholder="-" ></label>
+                <label>A≧<input id="pokedex-min-atk" type="number" min="0" max="255" placeholder="0"></label>
+                <label>A≦<input id="pokedex-max-atk" type="number" min="0" max="255" placeholder="-" ></label>
+                <label>B≧<input id="pokedex-min-def" type="number" min="0" max="255" placeholder="0"></label>
+                <label>B≦<input id="pokedex-max-def" type="number" min="0" max="255" placeholder="-" ></label>
+                <label>C≧<input id="pokedex-min-spa" type="number" min="0" max="255" placeholder="0"></label>
+                <label>C≦<input id="pokedex-max-spa" type="number" min="0" max="255" placeholder="-" ></label>
+                <label>D≧<input id="pokedex-min-spd" type="number" min="0" max="255" placeholder="0"></label>
+                <label>D≦<input id="pokedex-max-spd" type="number" min="0" max="255" placeholder="-" ></label>
+                <label>S≧<input id="pokedex-min-spe" type="number" min="0" max="255" placeholder="0"></label>
+                <label>S≦<input id="pokedex-max-spe" type="number" min="0" max="255" placeholder="-" ></label>
+              </div>
+              <label>並び順<select id="pokedex-sort"><option value="number">図鑑番号</option><option value="bst-desc">種族値合計↓</option><option value="speed-desc">素早さ↓</option><option value="hp-desc">HP↓</option><option value="attack-desc">攻撃↓</option><option value="specialAttack-desc">特攻↓</option></select></label>
+              <button id="pokedex-clear-filters" class="ghost-button compact-button" type="button">条件をクリア</button>
+            </details>
+            <label class="pokedex-research-format">環境統計<select id="pokedex-research-format"><option value="single">シングル</option><option value="double">ダブル</option><option value="triple">トリプル</option><option value="full6">6vs6</option><option value="tag">タッグ</option></select></label>
             <div id="pokedex-list" class="pokedex-list"></div>
           </aside>
           <div id="pokedex-detail" class="pokedex-detail"></div>
@@ -566,6 +623,8 @@
   <script src="game-data.js"></script>
   <script src="game.js"></script>
   <script src="pwa.js"></script>
+  <script src="format-engine.js"></script>
   <script src="sim-manager.js"></script>
+  <script src="pokedex-research.js"></script>
 </body>
 </html>

@@ -7624,10 +7624,10 @@ scoreMove = function(attacker, defender, move) {
   // ------------------------------------------------------------
   // 起動
   // ------------------------------------------------------------
-  v8LoadPartyLibrary();v8RenderPartyLibrary();v8RenderBattleSourceOptions();renderBuilder();renderDataCounts();setBuilderMessage(`v${V8_VERSION}：v11環境研究対応ランタイムで起動しました。保存データ互換・公開情報ルールは維持されています。`,false);showScreen("builder");
+  v8LoadPartyLibrary();v8RenderPartyLibrary();v8RenderBattleSourceOptions();renderBuilder();renderDataCounts();setBuilderMessage(`v${V8_VERSION}：v12マルチバトル・環境研究対応ランタイムで起動しました。保存データ互換・公開情報ルールは維持されています。`,false);showScreen("builder");
 
   window.__PBV8={
-    get savedParties(){return v8SavedParties;},buildStrongRandomTeam:v8BuildStrongRandomTeam,chooseCpuSelection:v8ChooseCpuSelection,validateTeam:v8ValidateTeam,
+    get savedParties(){return v8SavedParties;},get builderSets(){return v8CloneSets(builderSets);},buildStrongRandomTeam:v8BuildStrongRandomTeam,chooseCpuSelection:v8ChooseCpuSelection,validateTeam:v8ValidateTeam,
     teamToFormat(sets=builderSets){return v8TeamToFormat(v8CloneSets(sets));},parseTeamFormat(text){return v8ParseTeamFormat(text);},emptyTeamFormat:v8EmptyTeamFormat,
     setView(v){v8ViewMode=v;renderAll();},get view(){return v8ViewMode;},get battleMode(){return v8BattleMode;},
     _debugStartCpu(a=v8CloneSets(builderSets),b=v8BuildStrongRandomTeam()){v8BattleMode="cpu";v8RosterA=v8CloneSets(a);v8RosterB=v8CloneSets(b);v8SelectionA=[0,1,2];v8StartBattle();return{a:playerTeam.length,b:enemyTeam.length,turn:turnNumber};},
@@ -7763,12 +7763,26 @@ scoreMove = function(attacker, defender, move) {
   const statPairs=[["hp","H"],["attack","A"],["defense","B"],["specialAttack","C"],["specialDefense","D"],["speed","S"]];
 
   function speciesSorted(){return Object.values(SPECIES_DEX).slice().sort((a,b)=>(a.dexNo??9999)-(b.dexNo??9999)||a.name.localeCompare(b.name,"ja"));}
+  function dexNum(id,fallback=0){const raw=$(id)?.value;if(raw==null||raw==="")return fallback;const n=Number(raw);return Number.isFinite(n)?n:fallback;}
+  function dexFilteredRows(){
+    const q=(pokedexSearch?.value||"").trim().toLowerCase(),type=$("pokedex-filter-type")?.value||"",type2=$("pokedex-filter-type2")?.value||"",ability=$("pokedex-filter-ability")?.value||"",move=$("pokedex-filter-move")?.value||"";
+    const mins={hp:dexNum("pokedex-min-hp"),attack:dexNum("pokedex-min-atk"),defense:dexNum("pokedex-min-def"),specialAttack:dexNum("pokedex-min-spa"),specialDefense:dexNum("pokedex-min-spd"),speed:dexNum("pokedex-min-spe")};
+    const maxs={hp:dexNum("pokedex-max-hp",Infinity),attack:dexNum("pokedex-max-atk",Infinity),defense:dexNum("pokedex-max-def",Infinity),specialAttack:dexNum("pokedex-max-spa",Infinity),specialDefense:dexNum("pokedex-max-spd",Infinity),speed:dexNum("pokedex-max-spe",Infinity)};
+    const minBst=dexNum("pokedex-min-bst"),maxBst=dexNum("pokedex-max-bst",Infinity);
+    let rows=speciesSorted().filter(s=>{
+      const text=[s.name,s.id,s.classification||"",...s.types,...s.abilities.map(a=>`${a.name} ${a.description||""}`),...s.movePool.map(id=>MOVE_DEX[id]?.name||"")].join(" ").toLowerCase();
+      if(q&&!text.includes(q)&&!String(s.dexNo??"").includes(q))return false;
+      if(type&&!s.types.includes(type))return false;if(type2&&!s.types.includes(type2))return false;
+      if(ability&&!s.abilities.some(a=>a.id===ability))return false;if(move&&!s.movePool.includes(move))return false;
+      const bst=Object.values(s.baseStats).reduce((x,y)=>x+y,0);if(bst<minBst||bst>maxBst)return false;
+      for(const[k,v]of Object.entries(mins))if((s.baseStats[k]||0)<v)return false;for(const[k,v]of Object.entries(maxs))if((s.baseStats[k]||0)>v)return false;
+      return true;
+    });
+    const sort=$("pokedex-sort")?.value||"number";if(sort==="bst-desc")rows.sort((a,b)=>Object.values(b.baseStats).reduce((x,y)=>x+y,0)-Object.values(a.baseStats).reduce((x,y)=>x+y,0));else if(sort.endsWith("-desc")){const k=sort.slice(0,-5);rows.sort((a,b)=>(b.baseStats[k]||0)-(a.baseStats[k]||0));}return rows;
+  }
   function renderDexList(){
-    if(!pokedexList)return;
-    const q=(pokedexSearch?.value||"").trim().toLowerCase();
-    const rows=speciesSorted().filter(s=>!q||s.name.toLowerCase().includes(q)||String(s.dexNo??"").includes(q)||s.id.toLowerCase().includes(q));
-    pokedexList.innerHTML="";
-    rows.forEach(s=>{const b=document.createElement("button");b.type="button";b.className=`ghost-button pokedex-entry${s.id===selectedSpeciesId?" active":""}`;b.textContent=`No.${String(s.dexNo??"-").padStart(3,"0")} ${s.name}`;b.addEventListener("click",()=>{selectedSpeciesId=s.id;renderDexList();renderDexDetail();});pokedexList.appendChild(b);});
+    if(!pokedexList)return;const rows=dexFilteredRows();pokedexList.innerHTML="";
+    rows.forEach(s=>{const b=document.createElement("button");b.type="button";b.className=`ghost-button pokedex-entry${s.id===selectedSpeciesId?" active":""}`;b.textContent=`No.${String(s.dexNo??"-").padStart(3,"0")} ${s.name}`;b.addEventListener("click",()=>{selectedSpeciesId=s.id;renderDexList();renderDexDetail();window.dispatchEvent(new CustomEvent("niwara-dex-selection",{detail:{speciesId:s.id}}));});pokedexList.appendChild(b);});
     if(!rows.length)pokedexList.innerHTML='<div class="notice">該当するポケモンがいません。</div>';
   }
   function renderDexDetail(){
@@ -7783,9 +7797,21 @@ scoreMove = function(attacker, defender, move) {
       <h3>種族値</h3><div class="dex-stat-grid">${stats}</div>
       <h3>特性</h3><div class="dex-ability-list">${abilities}</div>
       <h3>覚える技 <span class="view-note">${moves.length}種</span></h3>
-      <div class="dex-move-table-wrap"><table class="dex-move-table"><thead><tr><th>技</th><th>タイプ</th><th>分類</th><th>威力</th><th>命中</th><th>PP</th><th>効果</th></tr></thead><tbody>${moveRows}</tbody></table></div>`;
+      <div class="dex-move-table-wrap"><table class="dex-move-table"><thead><tr><th>技</th><th>タイプ</th><th>分類</th><th>威力</th><th>命中</th><th>PP</th><th>効果</th></tr></thead><tbody>${moveRows}</tbody></table></div>
+      <section id="pokedex-research-block" class="pokedex-research-block"><h3>環境研究データ</h3><div class="view-note">保存済みの環境研究結果を読み込み中…</div></section>`;
+    window.dispatchEvent(new CustomEvent("niwara-dex-detail-rendered",{detail:{speciesId:selectedSpeciesId}}));
   }
-  function openDex(){renderDexList();renderDexDetail();openModal(pokedexModal);}
+  function populateDexAdvanced(){
+    const typeSel=$("pokedex-filter-type"),typeSel2=$("pokedex-filter-type2"),abSel=$("pokedex-filter-ability"),mvSel=$("pokedex-filter-move");
+    const types=[...new Set(Object.values(SPECIES_DEX).flatMap(s=>s.types))].sort((a,b)=>a.localeCompare(b,"ja"));
+    [typeSel,typeSel2].forEach(sel=>{if(sel&&sel.options.length<=1)types.forEach(x=>sel.appendChild(option(x,x)));});
+    if(abSel&&abSel.options.length<=1){const map=new Map();Object.values(SPECIES_DEX).flatMap(s=>s.abilities).forEach(a=>map.set(a.id,a.name));[...map].sort((a,b)=>a[1].localeCompare(b[1],"ja")).forEach(([id,n])=>abSel.appendChild(option(id,n)));}
+    if(mvSel&&mvSel.options.length<=1){Object.values(MOVE_DEX).slice().sort((a,b)=>a.name.localeCompare(b.name,"ja")).forEach(m=>mvSel.appendChild(option(m.id,m.name)));}
+    ["pokedex-filter-type","pokedex-filter-type2","pokedex-filter-ability","pokedex-filter-move","pokedex-sort","pokedex-min-bst","pokedex-max-bst","pokedex-min-hp","pokedex-max-hp","pokedex-min-atk","pokedex-max-atk","pokedex-min-def","pokedex-max-def","pokedex-min-spa","pokedex-max-spa","pokedex-min-spd","pokedex-max-spd","pokedex-min-spe","pokedex-max-spe"].forEach(id=>$(id)?.addEventListener("input",renderDexList));
+    $("pokedex-clear-filters")?.addEventListener("click",()=>{pokedexSearch.value="";["pokedex-filter-type","pokedex-filter-type2","pokedex-filter-ability","pokedex-filter-move"].forEach(id=>{if($(id))$(id).value="";});["pokedex-min-bst","pokedex-max-bst","pokedex-min-hp","pokedex-max-hp","pokedex-min-atk","pokedex-max-atk","pokedex-min-def","pokedex-max-def","pokedex-min-spa","pokedex-max-spa","pokedex-min-spd","pokedex-max-spd","pokedex-min-spe","pokedex-max-spe"].forEach(id=>{if($(id))$(id).value="";});$("pokedex-sort").value="number";renderDexList();});
+  }
+  function openDex(){populateDexAdvanced();renderDexList();renderDexDetail();openModal(pokedexModal);}
+  window.NIWARA_DEX_API={get selectedSpeciesId(){return selectedSpeciesId;},renderList:renderDexList,renderDetail:renderDexDetail,select(id){if(SPECIES_DEX[id]){selectedSpeciesId=id;renderDexList();renderDexDetail();}}};
 
   const ids={
     atkSpecies:$("damage-atk-species"),atkAbility:$("damage-atk-ability"),atkItem:$("damage-atk-item"),atkNature:$("damage-atk-nature"),atkHp:$("damage-atk-hp"),atkPoints:$("damage-atk-points"),atkStage:$("damage-atk-stage"),move:$("damage-move"),
