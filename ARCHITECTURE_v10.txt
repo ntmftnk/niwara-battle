@@ -1,0 +1,38 @@
+ニワラバトル v10 アーキテクチャ
+================================
+
+公開時の主要ファイル
+
+index.html
+  ↓
+app-config.js  : バージョン・永続化キーの正本
+  ↓
+game-data.js   : 種族 / 技 / 持ち物 / 特性などのデータ層
+  ↓
+game.js        : 編成 / 選出 / 戦闘 / 公開情報 / 図鑑 / 計算ツール / UI制御
+  ↓
+pwa.js         : インストール / 更新通知 / オンライン状態
+
+sw.js           : app-config.js を importScripts し、同じバージョン値でキャッシュを管理
+
+v9以前との違い
+- v9以前は複数のclassic scriptが同一グローバル関数を順番に差し替えていました。
+- v10では旧挙動を1つの game.js にコンパイルし、private closure内へ閉じ込めています。
+- index.htmlの読み込み順に「どのpatchが最後か」を依存させません。
+- 旧base内の重複FunctionDeclarationはビルド時に除去しています。
+- バージョン文字列はapp-config.jsのみが正本です。
+
+互換API
+- window.NIWARA.version
+- window.NIWARA.battle
+- window.NIWARA.tools
+- window.NIWARA.ui
+
+旧 window.__PBV8 / window.__PBV9Tools / window.__NIWARA_UI__ は既存デバッグ互換のため残していますが、新規コードは window.NIWARA を使用してください。
+
+今後の開発ルール
+1. 新しい *_patch.js を追加しない。
+2. データ追加は game-data.js 側へ統合する。
+3. 戦闘仕様変更は game.js の対応領域を直接変更する。
+4. リリース番号は app-config.js の version だけを更新する。
+5. Service WorkerのAPP_SHELLに新規必須ファイルを追加した場合だけ sw.js の一覧を更新する。

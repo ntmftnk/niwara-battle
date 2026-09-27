@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#172126">
+  <meta name="application-name" content="ニワラバトル">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ニワラバトル">
+  <meta name="mobile-web-app-capable" content="yes">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <title>ニワラバトル</title>
+  <script src="app-config.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="app-header">
+      <div>
+        <h1>ニワラバトル</h1>
+        <p class="subtitle"><span data-app-version></span>：v10統合ランタイム / 安全性・アクセシビリティ改善</p>
+      </div>
+      <div class="pwa-runtime-status" aria-label="PWA状態">
+        <span id="pwa-version-badge" class="runtime-badge" data-app-version></span>
+        <span id="pwa-network-status" class="runtime-badge" aria-live="polite">オンライン</span>
+      </div>
+      <div class="header-actions">
+        <button id="open-pokedex-button" class="ghost-button" type="button">図鑑</button>
+        <button id="open-damage-calc-button" class="ghost-button" type="button">ダメージ計算</button>
+        <button id="open-speed-check-button" class="ghost-button" type="button" data-open-speed-check aria-haspopup="dialog">素早さ比較</button>
+        <button id="pwa-install-button" class="ghost-button hidden" type="button">アプリをインストール</button>
+        <button id="pwa-update-check-button" class="ghost-button" type="button">更新確認</button>
+        <button id="go-builder-button" class="ghost-button hidden">編成へ戻る</button>
+        <button id="reset-all-button" class="dark-button" type="button" title="現在編成と保存パーティーをすべて削除">全データ初期化</button>
+      </div>
+    </header>
+
+    <section id="builder-screen" class="screen">
+      <div class="section-heading">
+        <div>
+          <h2>① 6匹を編成</h2>
+          <p>同じポケモンは1匹まで、同じ持ち物は1個までです。「持ち物なし」は重複できます。</p>
+          <div id="data-counts" class="data-counts"></div>
+        </div>
+        <div class="toolbar">
+          <button id="random-team-button" class="ghost-button">強めのランダム編成</button>
+          <button id="recommended-button" class="ghost-button">おすすめ編成に戻す</button>
+          <button id="save-team-button" class="ghost-button">現在枠へ保存</button>
+        </div>
+      </div>
+
+      <section class="party-library-panel">
+        <div class="party-library-title">
+          <div>
+            <h3>保存パーティー</h3>
+            <p>最大30個まで名前を付けて保存できます。CPUの対戦相手や2人対戦にも使用できます。</p>
+          </div>
+          <strong id="saved-party-count">0 / 30</strong>
+        </div>
+        <div class="party-library-controls">
+          <select id="saved-party-select" aria-label="保存パーティー"></select>
+          <input id="saved-party-name" type="text" maxlength="24" placeholder="パーティー名">
+          <button id="save-new-party-button" class="primary-button" type="button">新規保存</button>
+          <button id="overwrite-party-button" class="ghost-button" type="button">上書き</button>
+          <button id="load-party-button" class="ghost-button" type="button">読み込む</button>
+          <button id="delete-party-button" class="ghost-button danger-text" type="button">削除</button>
+        </div>
+      </section>
+
+      <details class="team-format-panel">
+        <summary>テキストフォーマットで編成を入出力</summary>
+        <div class="team-format-content">
+          <p>6匹分のフォーマットを貼り付けると、現在の編成へ一括反映できます。名前または内部IDを使用できます。</p>
+          <textarea id="team-format-input" rows="16" spellcheck="false" placeholder="# ニワラバトル編成フォーマット v1
+[1]
+ポケモン: ウルフレム
+特性: きれあじ
+持ち物: いのちのたま
+性格: ようき
+能力P: H=0 A=32 B=0 C=0 D=2 S=32
+技: かえんざん / じしん / インファイト / つるぎのまい
+
+…6匹分"></textarea>
+          <div class="team-format-actions">
+            <button id="apply-team-format-button" class="primary-button" type="button">入力内容を編成へ反映</button>
+            <button id="copy-current-team-format-button" class="ghost-button" type="button">現在の編成をコピー</button>
+            <button id="copy-empty-team-format-button" class="ghost-button" type="button">空フォーマットをコピー</button>
+          </div>
+          <div id="team-format-message" class="team-format-message" aria-live="polite"></div>
+          <div class="team-format-help">
+            <strong>固定フォーマット</strong>：各ブロックを <code>[1]</code>〜<code>[6]</code> で区切り、
+            <code>ポケモン / 特性 / 持ち物 / 性格 / 能力P / 技</code> を記入します。
+            技は「/」区切りで4つ、能力Pは H/A/B/C/D/S を指定してください。
+          </div>
+        </div>
+      </details>
+
+      <div id="builder-message" class="notice"></div>
+      <div id="builder-slots" class="builder-grid"></div>
+
+      <div class="bottom-action-bar">
+        <div><strong>能力ポイント：</strong>各能力0～32 / 合計66まで・Lv.50・個体値31固定　｜　種族・持ち物の重複禁止</div>
+        <button id="to-selection-button" class="primary-button">対戦設定へ</button>
+      </div>
+    </section>
+
+    <section id="mode-screen" class="screen hidden">
+      <div class="section-heading">
+        <div>
+          <h2>② 対戦設定</h2>
+          <p>CPU戦または同じ端末での2人対戦を選択します。</p>
+        </div>
+        <button id="mode-back-button" class="ghost-button">編成へ戻る</button>
+      </div>
+      <div class="mode-grid">
+        <label class="mode-card">
+          <span>対戦形式</span>
+          <select id="battle-mode-select">
+            <option value="cpu">対CPU戦</option>
+            <option value="pvp">2人対戦（同じ端末）</option>
+          </select>
+        </label>
+        <label class="mode-card">
+          <span>プレイヤーAのパーティー</span>
+          <select id="player-a-party-source"></select>
+        </label>
+        <label class="mode-card">
+          <span id="player-b-source-label">CPUのパーティー</span>
+          <select id="player-b-party-source"></select>
+        </label>
+      </div>
+      <div class="notice">2人対戦では、行動選択のたびに画面を隠す「端末を渡す」画面を挟みます。</div>
+      <div class="bottom-action-bar">
+        <span></span>
+        <button id="mode-continue-button" class="primary-button">選出へ</button>
+      </div>
+    </section>
+
+    <section id="selection-screen" class="screen hidden">
+      <div class="section-heading">
+        <div>
+          <h2 id="selection-heading">③ 3匹を選出</h2>
+          <p id="selection-description">6匹から3匹を順番に選んでください。最初に選んだポケモンが先発です。</p>
+        </div>
+        <button id="back-to-builder-button" class="ghost-button">対戦設定へ戻る</button>
+      </div>
+
+      <div id="selection-operator-banner" class="operator-banner" aria-live="polite">選出操作中：プレイヤーA</div>
+      <section class="selection-view-toolbar">
+        <div>
+          <strong>見せ合い表示</strong>
+          <span class="view-note">観戦は両者の公開情報、神視点は両者の完全情報を表示します。選出操作は「選出者視点」で行います。</span>
+        </div>
+        <div class="selection-view-actions">
+          <div id="selection-view-buttons" class="view-buttons">
+            <button type="button" data-selection-view="chooser" class="ghost-button">選出者視点</button>
+            <button type="button" data-selection-view="spectator" class="ghost-button">観戦視点</button>
+            <button type="button" data-selection-view="god" class="ghost-button">神視点</button>
+          </div>
+          <button id="copy-selection-context-button" type="button" class="ghost-button">状況＋ログをコピー</button>
+        </div>
+      </section>
+
+      <div class="preview-panel">
+        <div class="preview-title-row">
+          <h3 id="enemy-preview-title">相手の6匹</h3>
+          <button id="reroll-enemy-button" class="ghost-button">CPU構築を再生成</button>
+        </div>
+        <div id="enemy-preview" class="preview-grid"></div>
+      </div>
+
+      <div class="preview-panel">
+        <div class="preview-title-row">
+          <h3 id="player-preview-title">プレイヤーAの6匹</h3>
+          <span id="selection-count" class="selection-count">0 / 3</span>
+        </div>
+        <div id="player-preview" class="preview-grid selectable"></div>
+      </div>
+
+      <div class="bottom-action-bar">
+        <button id="clear-selection-button" class="ghost-button">選出をやり直す</button>
+        <button id="start-battle-button" class="primary-button" disabled>この3匹で確定</button>
+      </div>
+    </section>
+
+    <section id="battle-screen" class="screen hidden">
+      <div id="battle-operator-banner" class="operator-banner" aria-live="polite">操作中：プレイヤーA</div>
+      <section class="view-toolbar">
+        <div>
+          <strong>表示視点</strong>
+          <span class="view-note">A/Bは本人視点、観戦は公開情報、神視点は全情報です。</span>
+        </div>
+        <div class="view-toolbar-actions">
+          <div id="view-buttons" class="view-buttons">
+            <button type="button" data-view="A" class="ghost-button">プレイヤーA視点</button>
+            <button type="button" data-view="B" class="ghost-button">プレイヤーB視点</button>
+            <button type="button" data-view="spectator" class="ghost-button">観戦視点</button>
+            <button type="button" data-view="god" class="ghost-button">神視点</button>
+          </div>
+          <div class="battle-utility-buttons">
+            <button id="team-preview-button" type="button" class="ghost-button">見せ合いを確認</button>
+            <button id="bench-status-button" type="button" class="ghost-button">控え状態を確認</button>
+            <button id="copy-battle-context-button" type="button" class="ghost-button">状況＋ログをコピー</button>
+            <button id="battle-pokedex-button" type="button" class="ghost-button">図鑑</button>
+            <button id="battle-damage-calc-button" type="button" class="ghost-button">ダメージ計算</button>
+            <button id="battle-speed-check-button" type="button" class="ghost-button" data-open-speed-check aria-haspopup="dialog">素早さ比較</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="field-bar">
+        <div><span class="field-label">天候</span><strong id="weather-text">なし</strong></div>
+        <div><span class="field-label">ルーム</span><strong id="room-text">なし</strong></div>
+        <div><span class="field-label">フィールド</span><strong id="terrain-text">なし</strong></div>
+        <div><span class="field-label">場の効果</span><strong id="side-effect-text">なし</strong></div>
+        <div><span class="field-label">おいかぜ</span><strong id="tailwind-text">なし</strong></div>
+        <div><span class="field-label">ターン</span><strong id="turn-text">1</strong></div>
+        <button id="forfeit-button" class="ghost-button danger-text">対戦を終了</button>
+      </section>
+
+      <section class="team-area">
+        <h2 id="top-team-heading">プレイヤーBチーム</h2>
+        <div id="enemy-team-status" class="team-status"></div>
+      </section>
+
+      <section class="battle-card enemy-card">
+        <div class="pokemon-header">
+          <div><h2 id="opponent-name">-</h2><span id="opponent-type" class="type-text">-</span></div>
+          <span id="opponent-status" class="status-badge hidden"></span>
+        </div>
+        <div class="meta-row">
+          <span>特性：<strong id="opponent-ability">-</strong></span>
+          <span>持ち物：<strong id="opponent-item">-</strong></span>
+          <span>性格：<strong id="opponent-nature">-</strong></span>
+        </div>
+        <div class="hp-area">
+          <div class="hp-label"><span>HP</span><span id="opponent-hp">-</span></div>
+          <div class="hp-bar"><div id="opponent-hp-fill" class="hp-fill"></div></div>
+        </div>
+        <div id="opponent-stages" class="stage-display"></div>
+        <div id="opponent-private-detail" class="battle-detail-box"></div>
+      </section>
+
+      <div class="versus">VS</div>
+
+      <section class="battle-card player-card">
+        <div class="pokemon-header">
+          <div><h2 id="player-name">-</h2><span id="player-type" class="type-text">-</span></div>
+          <span id="player-status" class="status-badge hidden"></span>
+        </div>
+        <div class="meta-row">
+          <span>特性：<strong id="player-ability">-</strong></span>
+          <span>持ち物：<strong id="player-item">-</strong></span>
+          <span>性格：<strong id="player-nature">-</strong></span>
+        </div>
+        <div class="hp-area">
+          <div class="hp-label"><span>HP</span><span id="player-hp">-</span></div>
+          <div class="hp-bar"><div id="player-hp-fill" class="hp-fill"></div></div>
+        </div>
+        <div id="player-stages" class="stage-display"></div>
+        <div id="player-private-detail" class="battle-detail-box"></div>
+      </section>
+
+      <section class="team-area">
+        <h2 id="bottom-team-heading">プレイヤーAチーム</h2>
+        <div id="player-team-status" class="team-status"></div>
+      </section>
+
+      <section class="command-area">
+        <h2 id="command-owner-text">たたかう（プレイヤーA）</h2>
+        <div id="move-container" class="move-grid"></div>
+      </section>
+      <section class="command-area">
+        <h2>ポケモン</h2>
+        <div id="switch-container" class="switch-grid"></div>
+      </section>
+      <section class="log-area">
+        <h2>バトルログ</h2>
+        <div id="battle-log" class="battle-log"></div>
+      </section>
+    </section>
+  </main>
+
+  <div id="pass-overlay" class="pass-overlay hidden" aria-hidden="true">
+    <div class="pass-card" role="dialog" aria-modal="true" tabindex="-1" aria-labelledby="pass-title">
+      <div class="pass-kicker">2人対戦・非公開入力</div>
+      <h2 id="pass-title">端末を渡してください</h2>
+      <p id="pass-message"></p>
+      <button id="pass-continue-button" class="primary-button" type="button">続ける</button>
+    </div>
+  </div>
+
+
+  <div id="team-preview-modal" class="move-modal hidden" aria-hidden="true">
+    <div class="move-modal-backdrop" data-close-team-preview></div>
+    <section class="move-modal-card team-preview-modal-card" role="dialog" aria-modal="true" tabindex="-1" aria-labelledby="team-preview-title">
+      <div class="move-modal-header">
+        <div><div class="move-modal-kicker">見せ合い情報</div><h2 id="team-preview-title">相手の6匹</h2></div>
+        <button id="team-preview-close" class="ghost-button" type="button">閉じる</button>
+      </div>
+      <div id="team-preview-note" class="team-preview-note">見せ合い時に公開された情報のみ表示します。技・特性・持ち物・実数値・選出内容は表示しません。</div>
+      <div id="team-preview-body" class="team-preview-body"></div>
+    </section>
+  </div>
+
+  <div id="bench-status-modal" class="move-modal utility-modal hidden" aria-hidden="true">
+    <div class="move-modal-backdrop" data-close-bench-status></div>
+    <section class="move-modal-card utility-modal-card bench-status-modal-card" role="dialog" aria-modal="true" tabindex="-1" aria-labelledby="bench-status-title">
+      <div class="move-modal-header">
+        <div><div class="move-modal-kicker">選出3匹の現在状態</div><h2 id="bench-status-title">控え状態</h2></div>
+        <button id="bench-status-close" class="ghost-button" type="button">閉じる</button>
+      </div>
+      <div class="utility-modal-scroll" data-utility-scroll>
+        <p id="bench-status-note" class="team-preview-note">現在の視点で確認できる情報だけを表示します。</p>
+        <div id="bench-status-body" class="bench-status-body"></div>
+      </div>
+    </section>
+  </div>
+
+  <div id="move-detail-modal" class="move-modal hidden" aria-hidden="true">
+    <div class="move-modal-backdrop" data-close-move-modal></div>
+    <section class="move-modal-card" role="dialog" aria-modal="true" tabindex="-1" aria-labelledby="move-detail-title">
+      <div class="move-modal-header">
+        <div><div class="move-modal-kicker">技詳細</div><h2 id="move-detail-title">-</h2></div>
+        <button id="move-detail-close" class="ghost-button" type="button">閉じる</button>
+      </div>
+      <div id="move-detail-body" class="move-detail-body"></div>
+    </section>
+  </div>
+
+
+  <div id="pokedex-modal" class="move-modal utility-modal hidden" aria-hidden="true">
+    <div class="move-modal-backdrop" data-close-pokedex></div>
+    <section class="move-modal-card utility-modal-card" role="dialog" aria-modal="true" tabindex="-1" aria-labelledby="pokedex-title">
+      <div class="move-modal-header">
+        <div><div class="move-modal-kicker">ニワラ図鑑</div><h2 id="pokedex-title">ポケモン図鑑</h2></div>
+        <button id="pokedex-close" class="ghost-button" type="button">閉じる</button>
+      </div>
+      <div class="utility-modal-scroll" data-utility-scroll>
+        <div class="pokedex-layout">
+          <aside class="pokedex-sidebar">
+            <input id="pokedex-search" type="search" placeholder="名前・図鑑番号で検索" aria-label="図鑑検索">
+            <div id="pokedex-list" class="pokedex-list"></div>
+          </aside>
+          <div id="pokedex-detail" class="pokedex-detail"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="damage-calc-modal" class="move-modal utility-modal hidden" aria-hidden="true">
+    <div class="move-modal-backdrop" data-close-damage-calc></div>
+    <section class="move-modal-card utility-modal-card" role="dialog" aria-modal="true" tabindex="-1" aria-labelledby="damage-calc-title">
+      <div class="move-modal-header">
+        <div><div class="move-modal-kicker">バトルツール</div><h2 id="damage-calc-title">ダメージ計算シミュレーター</h2></div>
+        <button id="damage-calc-close" class="ghost-button" type="button">閉じる</button>
+      </div>
+      <div class="utility-modal-scroll" data-utility-scroll>
+        <div class="damage-toolbar">
+          <button id="damage-load-current" class="ghost-button" type="button">現在の対面を読み込む</button>
+          <button id="damage-swap-sides" class="ghost-button" type="button">攻撃側 ↔ 防御側</button>
+          <span class="view-note">ゲーム本体と同じダメージ計算関数を使用します。対戦中の読み込みでは、相手の非公開情報（能力P・性格・未公開特性/持ち物/技）は取得しません。</span>
+        </div>
+        <div class="damage-grid">
+          <section class="damage-side-card">
+            <h3>攻撃側</h3>
+            <label>ポケモン<select id="damage-atk-species"></select></label>
+            <label>特性<select id="damage-atk-ability"></select></label>
+            <label>持ち物<select id="damage-atk-item"></select></label>
+            <label>性格<select id="damage-atk-nature"></select></label>
+            <label>HP %<input id="damage-atk-hp" type="number" min="1" max="100" value="100"></label>
+            <div class="damage-stat-points" id="damage-atk-points"></div>
+            <label>攻撃側能力ランク<select id="damage-atk-stage"></select></label>
+            <label>技<select id="damage-move"></select></label>
+            <div id="damage-atk-load-note" class="damage-load-note" aria-live="polite"></div>
+          </section>
+          <section class="damage-side-card">
+            <h3>防御側</h3>
+            <label>ポケモン<select id="damage-def-species"></select></label>
+            <label>特性<select id="damage-def-ability"></select></label>
+            <label>持ち物<select id="damage-def-item"></select></label>
+            <label>性格<select id="damage-def-nature"></select></label>
+            <label>HP %<input id="damage-def-hp" type="number" min="1" max="100" value="100"></label>
+            <div class="damage-stat-points" id="damage-def-points"></div>
+            <label>防御側能力ランク<select id="damage-def-stage"></select></label>
+            <div id="damage-def-load-note" class="damage-load-note" aria-live="polite"></div>
+          </section>
+        </div>
+        <div class="damage-actions">
+          <label class="inline-check"><input id="damage-critical" type="checkbox"> 急所として計算</label>
+          <button id="damage-calculate" class="primary-button" type="button">計算する</button>
+        </div>
+        <div id="damage-result" class="damage-result" aria-live="polite">条件を設定して「計算する」を押してください。</div>
+      </div>
+    </section>
+  </div>
+
+  <div id="speed-check-modal" class="move-modal utility-modal hidden" aria-hidden="true">
+    <div class="move-modal-backdrop" data-close-speed-check></div>
+    <section class="move-modal-card utility-modal-card" role="dialog" aria-modal="true" tabindex="-1" aria-labelledby="speed-check-title">
+      <div class="move-modal-header">
+        <div><div class="move-modal-kicker">バトルツール</div><h2 id="speed-check-title">素早さ比較ツール</h2></div>
+        <button id="speed-check-close" class="ghost-button" type="button">閉じる</button>
+      </div>
+      <div class="utility-modal-scroll" data-utility-scroll>
+        <div class="damage-toolbar">
+          <button id="speed-load-current" class="ghost-button" type="button">現在の対面を読み込む</button>
+          <span class="view-note">基準ポケモンより「1でも速くなる」ために必要なS能力Pを、上昇補正・無補正・下降補正ごとに計算します。対戦中の相手側は公開情報のみ読み込みます。</span>
+        </div>
+        <div class="speed-grid">
+          <section class="damage-side-card">
+            <h3>基準：抜きたいポケモン</h3>
+            <label>ポケモン<select id="speed-target-species"></select></label>
+            <label>特性<select id="speed-target-ability"></select></label>
+            <label>持ち物<select id="speed-target-item"></select></label>
+            <label>性格<select id="speed-target-nature"></select></label>
+            <label>S能力P<input id="speed-target-points" type="number" min="0" max="32" value="0" inputmode="numeric"></label>
+            <label>Sランク<select id="speed-target-stage"></select></label>
+            <label class="inline-check"><input id="speed-target-paralysis" type="checkbox"> まひ</label>
+            <label class="inline-check"><input id="speed-target-tailwind" type="checkbox"> おいかぜ</label>
+            <div id="speed-target-load-note" class="damage-load-note" aria-live="polite"></div>
+          </section>
+          <section class="damage-side-card">
+            <h3>比較：抜きたい側</h3>
+            <label>ポケモン<select id="speed-chaser-species"></select></label>
+            <label>特性<select id="speed-chaser-ability"></select></label>
+            <label>持ち物<select id="speed-chaser-item"></select></label>
+            <label>Sランク<select id="speed-chaser-stage"></select></label>
+            <label class="inline-check"><input id="speed-chaser-paralysis" type="checkbox"> まひ</label>
+            <label class="inline-check"><input id="speed-chaser-tailwind" type="checkbox"> おいかぜ</label>
+            <div id="speed-chaser-load-note" class="damage-load-note" aria-live="polite"></div>
+          </section>
+        </div>
+        <div class="damage-actions">
+          <button id="speed-calculate" class="primary-button" type="button">必要なS能力Pを計算</button>
+        </div>
+        <div id="speed-result" class="damage-result" aria-live="polite">条件を設定して「必要なS能力Pを計算」を押してください。</div>
+      </div>
+    </section>
+  </div>
+
+  <div id="pwa-update-banner" class="pwa-update-banner hidden" role="status" aria-live="polite">
+    <div>
+      <strong>新しいバージョンがあります</strong>
+      <span>対戦が終わってから更新できます。保存パーティーは引き継がれます。</span>
+    </div>
+    <div class="pwa-update-actions">
+      <button id="pwa-update-now-button" class="primary-button" type="button">今すぐ更新</button>
+      <button id="pwa-update-later-button" class="ghost-button" type="button">あとで</button>
+    </div>
+  </div>
+  <div id="pwa-status-toast" class="pwa-status-toast hidden" role="status" aria-live="polite"></div>
+
+  <script src="game-data.js"></script>
+  <script src="game.js"></script>
+  <script src="pwa.js"></script>
+</body>
+</html>

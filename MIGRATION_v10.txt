@@ -1,0 +1,29 @@
+v9.x → v10 GitHub Pages 更新時の旧ファイル整理
+===============================================
+
+v10では下記ファイルをindex.htmlから読み込みません。
+GitHubリポジトリに残っていてもゲーム動作には影響しませんが、構成を綺麗にする場合は削除できます。
+
+削除してよい旧JS:
+- data.js
+- expansion.js
+- v6_data.js
+- v7_data.js
+- script.js
+- v6_patch.js
+- v6_3_patch.js
+- v7_patch.js
+- v7_1_patch.js
+- v7_2_patch.js
+- v8_patch.js
+- v9_tools.js
+
+v10で必要な主要JS:
+- app-config.js
+- game-data.js
+- game.js
+- pwa.js
+- sw.js
+
+旧README / AUDITファイルはゲームから参照しないため、必要なければ削除して構いません。
+保存パーティーはlocalStorage側なので、GitHub上の旧JSを削除しても消えません。

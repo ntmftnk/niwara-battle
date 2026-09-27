@@ -1,0 +1,77 @@
+ニワラバトル v10.0.0 監査結果
+==============================
+
+対象: v9.1.6 → v10.0.0
+
+[1] 初期化安全性
+PASS
+- ボタン名を「全データ初期化」に変更。
+- window.confirmで「現在編成 + 最大30件の保存パーティーを全削除 / 元に戻せない」と明記。
+- キャンセル時は削除処理へ進まない。
+- niwaraBattleTeamV5、旧niwaraBattleTeamV4、niwaraBattlePartyLibraryV8を削除対象として確認。
+
+[2] バージョン一貫性
+PASS
+- リリース番号 10.0.0 の具体値は app-config.js の1か所のみ。
+- index / game / pwa / sw は NIWARA_APP.version を参照。
+- 公開対象ファイルに 9.1.x の残存表記なし。
+
+[3] モーダルフォーカス
+PASS（静的構造監査）
+- role=dialog / aria-modal=true の全ダイアログに tabindex=-1。
+- v10共通管理でopen時フォーカス、Tab/Shift+Tabトラップ、close時フォーカス復元。
+- 背景app-shellをinert化。
+- 複数モーダル時は最上位以外もinert化。
+- 通常モーダルはEscクローズ。秘密入力のpass-overlayだけEsc無効。
+
+[4] 両者同時交代
+PASS（コード監査）
+- A→B固定処理を削除。
+- 交代前の両アクティブの実効Sを先に取得。
+- 通常時: 高S側→低S側。
+- トリックルーム時: 低S側→高S側。
+- 同速: ランダム。
+- 1匹目の登場特性後に順序を再計算しない。
+
+[5] パーティー名のinnerHTML
+PASS
+- 対戦設定のselectは replaceChildren + createElement("option") + textContent に変更。
+- ユーザー入力のパーティー名をoption用HTML文字列へ直接連結しない。
+
+[6] パッチ積み重ね構造
+PASS
+- index.htmlのscript参照は4本: app-config.js / game-data.js / game.js / pwa.js。
+- 旧 script.js / v6_patch.js / v6_3_patch.js / v7_patch.js / v7_1_patch.js / v7_2_patch.js / v8_patch.js / v9_tools.js は公開ビルドから除外。
+- 旧script.js内の重複FunctionDeclarationをASTで整理: 30個削除。
+- game.js private runtime内の直接FunctionDeclaration: 170個 / 同名重複0個。
+- getModifiedStat: 1実装のみ。
+- window.NIWARA をv10公開APIとして追加。
+
+[7] 構文・参照
+PASS
+- node --check: app-config.js / game-data.js / game.js / pwa.js / sw.js
+- manifest.webmanifest JSON妥当。
+- HTML id 170件 / 重複0。
+- HTML参照ファイルすべて存在。
+- Service Worker APP_SHELL 10件すべて存在。
+
+[8] データ整合性
+PASS
+- 種族 25
+- 技 350
+- 持ち物 70
+- 特性 54
+- 全種族のmovePool参照欠損0。
+- 全種族の特性参照欠損0。
+- DEFAULT_PLAYER_SETS / DEFAULT_ENEMY_SETS / ENEMY_SET_LIBRARYの種族・技・持ち物・特性参照欠損0。
+
+[9] 保存データ互換
+PASS
+- 現行編成キー: niwaraBattleTeamV5（変更なし）
+- 保存パーティーキー: niwaraBattlePartyLibraryV8（変更なし）
+
+[10] ブラウザ自動UI試験
+環境制約あり
+- この実行環境のChromiumはfile:// / localhostナビゲーションが管理ポリシーでブロックされるため、CDPでの実UI自動試験は完走できず。
+- 構文、DOM静的構造、参照、データ、AST監査は上記の通り合格。
+- GitHub Pagesへ反映後、PC/スマホ実機で「初期化キャンセル」「図鑑/計算モーダルTab操作」「PVP同時交代」を1回ずつ確認推奨。
