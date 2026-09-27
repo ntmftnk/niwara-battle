@@ -1,7 +1,7 @@
-/* ニワラバトル v9.0 PWA Service Worker
+/* ニワラバトル v9.1 PWA Service Worker
  * アプリシェルをバージョン単位で固定し、更新はユーザー操作で一括切替する。
  */
-const APP_VERSION = "9.0.0";
+const APP_VERSION = "9.1.0";
 const CACHE_PREFIX = "niwara-battle-shell-";
 const CACHE_NAME = `${CACHE_PREFIX}${APP_VERSION}`;
 const APP_SHELL = [
@@ -18,6 +18,7 @@ const APP_SHELL = [
   "./v7_1_patch.js",
   "./v7_2_patch.js",
   "./v8_patch.js",
+  "./v9_tools.js",
   "./pwa.js",
   "./manifest.webmanifest",
   "./icons/icon-192.png",

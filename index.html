@@ -11,7 +11,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <title>ニワラバトル v9.0</title>
+  <title>ニワラバトル v9.1</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -19,13 +19,15 @@
     <header class="app-header">
       <div>
         <h1>ニワラバトル</h1>
-        <p class="subtitle">v9.0：PWA / オフライン起動 / 安全な一括更新 / スマホ最適化 / 操作者表示 / 各視点ログコピー</p>
+        <p class="subtitle">v9.1：解決時交代技 / 図鑑 / ダメージ計算 / PWA</p>
       </div>
       <div class="pwa-runtime-status" aria-label="PWA状態">
-        <span id="pwa-version-badge" class="runtime-badge">v9.0</span>
+        <span id="pwa-version-badge" class="runtime-badge">v9.1</span>
         <span id="pwa-network-status" class="runtime-badge" aria-live="polite">オンライン</span>
       </div>
       <div class="header-actions">
+        <button id="open-pokedex-button" class="ghost-button" type="button">図鑑</button>
+        <button id="open-damage-calc-button" class="ghost-button" type="button">ダメージ計算</button>
         <button id="pwa-install-button" class="ghost-button hidden" type="button">アプリをインストール</button>
         <button id="pwa-update-check-button" class="ghost-button" type="button">更新確認</button>
         <button id="go-builder-button" class="ghost-button hidden">編成へ戻る</button>
@@ -198,6 +200,8 @@
           <div class="battle-utility-buttons">
             <button id="team-preview-button" type="button" class="ghost-button">見せ合いを確認</button>
             <button id="copy-battle-context-button" type="button" class="ghost-button">状況＋ログをコピー</button>
+            <button id="battle-pokedex-button" type="button" class="ghost-button">図鑑</button>
+            <button id="battle-damage-calc-button" type="button" class="ghost-button">ダメージ計算</button>
           </div>
         </div>
       </section>
@@ -308,6 +312,66 @@
     </section>
   </div>
 
+
+  <div id="pokedex-modal" class="move-modal hidden" aria-hidden="true">
+    <div class="move-modal-backdrop" data-close-pokedex></div>
+    <section class="move-modal-card utility-modal-card" role="dialog" aria-modal="true" aria-labelledby="pokedex-title">
+      <div class="move-modal-header">
+        <div><div class="move-modal-kicker">ニワラ図鑑</div><h2 id="pokedex-title">ポケモン図鑑</h2></div>
+        <button id="pokedex-close" class="ghost-button" type="button">閉じる</button>
+      </div>
+      <div class="pokedex-layout">
+        <aside class="pokedex-sidebar">
+          <input id="pokedex-search" type="search" placeholder="名前・図鑑番号で検索" aria-label="図鑑検索">
+          <div id="pokedex-list" class="pokedex-list"></div>
+        </aside>
+        <div id="pokedex-detail" class="pokedex-detail"></div>
+      </div>
+    </section>
+  </div>
+
+  <div id="damage-calc-modal" class="move-modal hidden" aria-hidden="true">
+    <div class="move-modal-backdrop" data-close-damage-calc></div>
+    <section class="move-modal-card utility-modal-card" role="dialog" aria-modal="true" aria-labelledby="damage-calc-title">
+      <div class="move-modal-header">
+        <div><div class="move-modal-kicker">バトルツール</div><h2 id="damage-calc-title">ダメージ計算シミュレーター</h2></div>
+        <button id="damage-calc-close" class="ghost-button" type="button">閉じる</button>
+      </div>
+      <div class="damage-toolbar">
+        <button id="damage-load-current" class="ghost-button" type="button">現在の対面を読み込む</button>
+        <span class="view-note">ゲーム本体と同じダメージ計算関数を使用します。対戦中は現在の天候・フィールド等も反映されます。</span>
+      </div>
+      <div class="damage-grid">
+        <section class="damage-side-card">
+          <h3>攻撃側</h3>
+          <label>ポケモン<select id="damage-atk-species"></select></label>
+          <label>特性<select id="damage-atk-ability"></select></label>
+          <label>持ち物<select id="damage-atk-item"></select></label>
+          <label>性格<select id="damage-atk-nature"></select></label>
+          <label>HP %<input id="damage-atk-hp" type="number" min="1" max="100" value="100"></label>
+          <div class="damage-stat-points" id="damage-atk-points"></div>
+          <label>攻撃側能力ランク<select id="damage-atk-stage"></select></label>
+          <label>技<select id="damage-move"></select></label>
+        </section>
+        <section class="damage-side-card">
+          <h3>防御側</h3>
+          <label>ポケモン<select id="damage-def-species"></select></label>
+          <label>特性<select id="damage-def-ability"></select></label>
+          <label>持ち物<select id="damage-def-item"></select></label>
+          <label>性格<select id="damage-def-nature"></select></label>
+          <label>HP %<input id="damage-def-hp" type="number" min="1" max="100" value="100"></label>
+          <div class="damage-stat-points" id="damage-def-points"></div>
+          <label>防御側能力ランク<select id="damage-def-stage"></select></label>
+        </section>
+      </div>
+      <div class="damage-actions">
+        <label class="inline-check"><input id="damage-critical" type="checkbox"> 急所として計算</label>
+        <button id="damage-calculate" class="primary-button" type="button">計算する</button>
+      </div>
+      <div id="damage-result" class="damage-result" aria-live="polite">条件を設定して「計算する」を押してください。</div>
+    </section>
+  </div>
+
   <div id="pwa-update-banner" class="pwa-update-banner hidden" role="status" aria-live="polite">
     <div>
       <strong>新しいバージョンがあります</strong>
@@ -331,6 +395,7 @@
   <script src="v7_1_patch.js"></script>
   <script src="v7_2_patch.js"></script>
   <script src="v8_patch.js"></script>
+  <script src="v9_tools.js"></script>
   <script src="pwa.js"></script>
 </body>
 </html>

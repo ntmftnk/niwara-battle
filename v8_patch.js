@@ -10,7 +10,7 @@
 (function () {
   "use strict";
 
-  const V8_VERSION = "9.0";
+  const V8_VERSION = "9.1";
   const V8_PARTY_LIBRARY_KEY = "niwaraBattlePartyLibraryV8";
   const V8_MAX_PARTIES = 30;
 
@@ -918,7 +918,7 @@
     const labels={A:"プレイヤーA視点",B:"プレイヤーB視点",spectator:"観戦視点",god:"神視点"};
     const rosterLines=(side,roster)=>roster.map((set,i)=>`${i+1}. ${v8SelectionSetText(set,side,viewMode)}`);
     const lines=[
-      `【ニワラバトル v9.0 見せ合い状況コピー】`,
+      `【ニワラバトル v9.1 見せ合い状況コピー】`,
       `視点: ${labels[viewMode]}`,
       `対戦形式: ${v8BattleMode==="pvp"?"2人対戦":"対CPU戦"}`,
       `選出操作中: プレイヤー${isB?"B":"A"}`,
@@ -1261,7 +1261,7 @@
     else if(viewMode==="A") commandText=v8CommandOptionsText("player");
     else if(viewMode==="B"&&v8BattleMode==="pvp") commandText=v8CommandOptionsText("enemy");
     const lines=[
-      `【ニワラバトル v9.0 状況コピー】`,
+      `【ニワラバトル v9.1 状況コピー】`,
       `ターン: ${turnNumber}`,
       `視点: ${v8ViewLabel(viewMode)}`,
       `対戦形式: ${v8BattleMode==="pvp"?"2人対戦":"対CPU戦"}`,
@@ -1319,7 +1319,6 @@
   let v8ActionPhase="player";
   let v8PendingActions={player:null,enemy:null};
   let v8PivotChoicePending=null;
-  let v8QueuedPivotChoices={player:null,enemy:null};
   let v8ReplacementState=null;
   let v8PassCallback=null;
   let v8ResolvingTurn=false;
@@ -1347,71 +1346,110 @@
   function v8SelectMove(side,move){
     if(side!==v8ActionPhase||battleOver||awaitingPlayerSwitch)return; const p=v8Active(side); if(!p||p.hp<=0)return;
     if(!move.struggle&&(move.pp<=0||!isMoveAllowedByItem(p,move)))return;
-    const action={type:"move",move,pivotIndex:null};
-    if((move.pivot||move.batonPass)&&v8HasBench(side)){v8PivotChoicePending={side,action};renderAll();return;}
-    v8LockAction(side,action);
+    // v9.1: 交代技の交代先は入力時には決めない。
+    // 実際に技が解決した時点までの相手の交代・行動を確認してから選択する。
+    v8LockAction(side,{type:"move",move});
   }
   function v8SelectSwitch(side,index){
     if(side!==v8ActionPhase||battleOver||awaitingPlayerSwitch)return; const p=v8GetTeam(side)[index]; if(!p||p.hp<=0||index===v8GetIndex(side))return;
     if(isTrappedByOpponent(v8Active(side),v8Active(v8Other(side))))return; v8LockAction(side,{type:"switch",index});
   }
+  let v8PivotRequestedSide=null;
+
+  function v8PerformResolvedPivot(side,index){
+    const incoming=v8GetTeam(side)[index],old=v8Active(side);
+    if(!incoming||incoming.hp<=0||index===v8GetIndex(side))return false;
+    onSwitchOut(old);v8SetIndex(side,index);resetOnSwitch(incoming);
+    addLog(`${old.name}は 技の効果で戻った！`,`log-system`);
+    addLog(`${side==="enemy"?"相手は ":""}${incoming.name}を くりだした！`,`log-system`);
+    activateEntryAbility(incoming);return true;
+  }
+
   function v8SelectPivot(index){
     const x=v8PivotChoicePending;if(!x)return;const p=v8GetTeam(x.side)[index];if(!p||p.hp<=0||index===v8GetIndex(x.side))return;
-    x.action.pivotIndex=index;v8PivotChoicePending=null;v8LockAction(x.side,x.action);
+    const side=x.side,continuation=x.continuation;v8PivotChoicePending=null;
+    v8PerformResolvedPivot(side,index);renderAll();
+    if(typeof continuation==="function")setTimeout(continuation,0);
   }
   function v8LockAction(side,action){
     v8PendingActions[side]=action;
     if(side==="player")v8ShowPass("プレイヤーBに端末を渡してください","Aの行動は確定しました。Bに選択内容を見せないようにしてから続けてください。",()=>v8BeginPhase("enemy"));
-    else {v8ViewMode="spectator";renderAll();v8ShowPass("両者の行動が確定しました","続けると行動を解決します。入力した技・交代先は表示しません。",()=>v8ResolvePvpTurn());}
+    else {v8ViewMode="spectator";renderAll();v8ShowPass("両者の行動が確定しました","続けると行動を解決します。入力した技は表示しません。",()=>v8ResolvePvpTurn());}
   }
 
-  // 交代技は入力時に選んだ相手へ直接交代。v6.3の自動選択/入力停止を使わない。
+  // v9.1: 2人対戦の交代技は、技が実際に解決した瞬間だけ交代要求を立てる。
+  // 交代先そのものはその後に操作者が選ぶため、先に起きた相手の交代・行動を確認できる。
   const V8_autoPivot=autoPivot;
   autoPivot=function(side){
-    if(v8BattleMode==="pvp"&&v8QueuedPivotChoices[side]!==null&&v8QueuedPivotChoices[side]!==undefined){
-      const idx=v8QueuedPivotChoices[side];v8QueuedPivotChoices[side]=null;const incoming=v8GetTeam(side)[idx],old=v8Active(side);
-      if(!incoming||incoming.hp<=0||idx===v8GetIndex(side))return false;
-      onSwitchOut(old);v8SetIndex(side,idx);resetOnSwitch(incoming);addLog(`${old.name}は 技の効果で戻った！`);addLog(`${side==="enemy"?"相手は ":""}${incoming.name}を くりだした！`);activateEntryAbility(incoming);return true;
-    }
+    if(v8BattleMode==="pvp"&&v8ResolvingTurn){v8PivotRequestedSide=side;return false;}
     return V8_autoPivot(side);
   };
 
-  // バトンタッチの交代先も事前選択を使用。
-  const V8_useMovePvp=useMove;
-  useMove=function(attacker,defender,originalMove){
-    const side=attacker?.side;
-    if(v8BattleMode==="pvp"&&originalMove?.batonPass&&side&&v8QueuedPivotChoices[side]!==null&&v8QueuedPivotChoices[side]!==undefined){
-      const move=getEffectiveMove(attacker,originalMove);const logs=[];
-      if(move.pp<=0)return[`${move.name}は PPが ない！`];
-      if(!isMoveAllowedByItem(attacker,move))return[`${attacker.name}は ${move.name}を使えない！`];
-      const act=canPokemonAct(attacker);if(act.text)logs.push(act.text);if(!act.canAct)return logs;
-      const original=attacker.moves.find(m=>m.id===originalMove.id);if(original)original.pp=Math.max(0,original.pp-1);
-      logs.push(`${attacker.name}の ${move.name}！`);v8MarkMove(attacker,move.id);
-      const idx=v8QueuedPivotChoices[side];v8QueuedPivotChoices[side]=null;const incoming=v8GetTeam(side)[idx];
-      if(!incoming||incoming.hp<=0||idx===v8GetIndex(side)){logs.push("しかし 交代できるポケモンがいない！");return logs;}
-      const stages={...attacker.stages},sub=attacker.substituteHP||0,aqua=Boolean(attacker.aquaRing),old=attacker;
-      onSwitchOut(old);v8SetIndex(side,idx);resetOnSwitch(incoming);incoming.stages=stages;incoming.substituteHP=sub;incoming.aquaRing=aqua;
-      logs.push(`${old.name}は 戻った！`);logs.push(`${side==="enemy"?"相手は ":""}${incoming.name}を くりだした！`);activateEntryAbility(incoming);return logs;
-    }
-    return V8_useMovePvp(attacker,defender,originalMove);
-  };
+  function v8PauseForResolvedPivot(side,continuation){
+    if(v8PivotRequestedSide!==side||!v8HasBench(side)||!v8Active(side)||v8Active(side).hp<=0)return false;
+    v8PivotRequestedSide=null;v8PivotChoicePending={side,continuation};
+    v8ViewMode=side==="player"?"A":"B";renderAll();
+    v8ShowPass(`交代先選択：${v8SideLabel(side)}`,"ここまでに起きた相手の交代・行動を確認したうえで、交代技で出すポケモンを選べます。",()=>{v8ActionPhase=side;v8ViewMode=side==="player"?"A":"B";renderAll();});
+    return true;
+  }
 
   function v8EnemyPendingAction(a){return a?.type==="switch"?{type:"switch",index:a.index}:{type:"move",move:a?.move||chooseBestMove(getEnemyPokemon(),getPlayerPokemon())};}
-  function v8ResolveARegularSwitch(a,b){
-    addLog(`ターン ${turnNumber}`,"log-turn");const old=getPlayerPokemon(),incoming=playerTeam[a.index];if(!incoming||incoming.hp<=0||a.index===playerActiveIndex)return;
-    addLog(`${old.name} 戻れ！`);onSwitchOut(old);playerActiveIndex=a.index;resetOnSwitch(getPlayerPokemon());addLog(`${getPlayerPokemon().name}！ キミにきめた！`);activateEntryAbility(getPlayerPokemon());
-    if(b.type==="switch")enemySwitch(b.index,true);else if(getEnemyPokemon().hp>0&&getPlayerPokemon().hp>0)addLogs(useMove(getEnemyPokemon(),getPlayerPokemon(),b.move));
-    endTurn();turnNumber++;resolveFaints();renderAll();
+  function v8DoRegularSwitch(side,index){
+    const team=v8GetTeam(side),old=v8Active(side),incoming=team[index];
+    if(!incoming||incoming.hp<=0||index===v8GetIndex(side))return false;
+    addLog(`${side==="enemy"?"相手は ":""}${old.name}${side==="player"?" 戻れ！":"を 戻した！"}`,'log-system');
+    onSwitchOut(old);v8SetIndex(side,index);resetOnSwitch(incoming);
+    addLog(`${side==="enemy"?"相手は ":""}${incoming.name}${side==="player"?"！ キミにきめた！":"を くりだした！"}`,'log-system');
+    activateEntryAbility(incoming);return true;
   }
-  function v8ResolvePvpTurn(){
-    if(battleOver||!v8PendingActions.player||!v8PendingActions.enemy)return;v8HidePass();v8ResolvingTurn=true;
-    const a=v8PendingActions.player,b=v8PendingActions.enemy;v8QueuedPivotChoices={player:a.pivotIndex??null,enemy:b.pivotIndex??null};
-    const chooser=chooseEnemyAction;chooseEnemyAction=()=>v8EnemyPendingAction(b);
-    try{if(a.type==="switch")v8ResolveARegularSwitch(a,b);else processMoveTurn(a.move);}finally{chooseEnemyAction=chooser;v8PendingActions={player:null,enemy:null};v8QueuedPivotChoices={player:null,enemy:null};v8ResolvingTurn=false;}
+  function v8CleanupResolvedPvp(){v8PendingActions={player:null,enemy:null};v8PivotRequestedSide=null;v8ResolvingTurn=false;window.__v6SelectedMoves=null;}
+  function v8FinishPvpTurn(){
+    endTurn();turnNumber++;resolveFaints();renderAll();v8CleanupResolvedPvp();
     if(!battleOver&&!awaitingPlayerSwitch&&!v8ReplacementState)v8PrepareNextPvpTurn();
   }
+  function v8RunMove(side,move){
+    const attacker=v8Active(side),defender=v8Active(v8Other(side));
+    if(attacker?.hp>0&&defender?.hp>0)addLogs(useMove(attacker,defender,move));
+  }
+  function v8ContinueAfterMove(side,continuation){
+    if(v8PauseForResolvedPivot(side,continuation))return;
+    continuation();
+  }
+  function v8ResolvePvpTurn(){
+    if(battleOver||!v8PendingActions.player||!v8PendingActions.enemy)return;
+    v8HidePass();v8ResolvingTurn=true;v8PivotRequestedSide=null;
+    if(typeof v63ResetTurnFlags==="function")v63ResetTurnFlags();
+    addLog(`ターン ${turnNumber}`,"log-turn");
+    const a=v8PendingActions.player,b=v8PendingActions.enemy;
+    window.__v6SelectedMoves={player:a.type==="move"?a.move:null,enemy:b.type==="move"?b.move:null};
+
+    // 通常交代は技より先に解決する。
+    if(a.type==="switch"&&b.type==="switch"){
+      v8DoRegularSwitch("player",a.index);v8DoRegularSwitch("enemy",b.index);v8FinishPvpTurn();return;
+    }
+    if(a.type==="switch"){
+      v8DoRegularSwitch("player",a.index);
+      if(b.type==="move")v8RunMove("enemy",b.move);
+      v8ContinueAfterMove("enemy",v8FinishPvpTurn);return;
+    }
+    if(b.type==="switch"){
+      v8DoRegularSwitch("enemy",b.index);
+      v8RunMove("player",a.move);
+      v8ContinueAfterMove("player",v8FinishPvpTurn);return;
+    }
+
+    const first=determineFirst(a.move,b.move);
+    const firstSide=first==="player"?"player":"enemy",secondSide=v8Other(firstSide);
+    const firstMove=firstSide==="player"?a.move:b.move,secondMove=secondSide==="player"?a.move:b.move;
+    const runSecond=()=>{
+      if(v8Active(secondSide)?.hp>0&&v8Active(firstSide)?.hp>0)v8RunMove(secondSide,secondMove);
+      v8ContinueAfterMove(secondSide,v8FinishPvpTurn);
+    };
+    v8RunMove(firstSide,firstMove);
+    v8ContinueAfterMove(firstSide,runSecond);
+  }
   function v8PrepareNextPvpTurn(){
-    if(v8BattleMode!=="pvp"||battleOver||awaitingPlayerSwitch)return;v8PendingActions={player:null,enemy:null};v8ActionPhase="player";v8ViewMode="spectator";renderAll();
+    if(v8BattleMode!=="pvp"||battleOver||awaitingPlayerSwitch)return;v8PendingActions={player:null,enemy:null};v8PivotChoicePending=null;v8PivotRequestedSide=null;v8ActionPhase="player";v8ViewMode="spectator";renderAll();
     v8ShowPass(`ターン${turnNumber}：プレイヤーA`,`プレイヤーAに端末を渡してください。続けるとAだけが自分の非公開情報を見て行動を選びます。`,()=>v8BeginPhase("player"));
   }
 

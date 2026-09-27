@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const APP_VERSION = "9.0.0";
+  const APP_VERSION = "9.1.0";
   const installButton = document.getElementById("pwa-install-button");
   const checkButton = document.getElementById("pwa-update-check-button");
   const banner = document.getElementById("pwa-update-banner");
@@ -16,7 +16,7 @@
   let refreshing = false;
   let toastTimer = null;
 
-  if (versionBadge) versionBadge.textContent = "v9.0";
+  if (versionBadge) versionBadge.textContent = "v9.1";
 
   function showToast(message, ms = 2800) {
     if (!toast) return;
