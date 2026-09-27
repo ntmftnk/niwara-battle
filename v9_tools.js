@@ -1,5 +1,5 @@
 // ============================================================
-// ニワラバトル v9.1.1 utility tools
+// ニワラバトル v9.1.2 utility tools
 // - 図鑑
 // - ダメージ計算シミュレーター
 // ============================================================
@@ -11,41 +11,93 @@
   const damageModal=$("damage-calc-modal"), damageResult=$("damage-result");
   let selectedSpeciesId=Object.values(SPECIES_DEX).sort((a,b)=>(a.dexNo||9999)-(b.dexNo||9999))[0]?.id||null;
 
-  // iOS / standalone PWA では overflow:hidden だけだと背景が動くことがあるため、
-  // body を現在位置で固定してモーダル内だけをスクロールさせる。
+  // v9.1.2: iOS/PWA で body を position:fixed にすると、fixed 子要素の座標が
+  // スクロール量や safe-area の影響でずれる場合があるため、その方式を廃止する。
+  // html/body の overflow を止め、document レベルの touch/wheel ガードで
+  // 開いている utility modal の外へスクロールを連鎖させない。
   const managedOpenModals=new Set();
   let lockedScrollY=0;
+  let touchX=0,touchY=0;
+
+  function activeUtilityModal(){
+    const list=Array.from(managedOpenModals);
+    return list.length?list[list.length-1]:null;
+  }
   function lockPageScroll(){
     if(managedOpenModals.size!==1)return;
     lockedScrollY=window.scrollY||window.pageYOffset||0;
     document.documentElement.classList.add("utility-modal-open");
     document.body.classList.add("utility-modal-open");
-    document.body.style.position="fixed";
-    document.body.style.top=`-${lockedScrollY}px`;
-    document.body.style.left="0";
-    document.body.style.right="0";
-    document.body.style.width="100%";
   }
   function unlockPageScroll(){
     if(managedOpenModals.size!==0)return;
     document.documentElement.classList.remove("utility-modal-open");
     document.body.classList.remove("utility-modal-open");
-    document.body.style.position="";
-    document.body.style.top="";
-    document.body.style.left="";
-    document.body.style.right="";
-    document.body.style.width="";
-    window.scrollTo(0,lockedScrollY);
+    // iOS の慣性スクロール等で万一位置が動いても、開く前の位置へ戻す。
+    requestAnimationFrame(()=>window.scrollTo(0,lockedScrollY));
   }
+  function canScrollInDirection(node,dx,dy){
+    if(!node)return false;
+    const vertical=node.scrollHeight>node.clientHeight+1;
+    const horizontal=node.scrollWidth>node.clientWidth+1;
+    if(Math.abs(dx)>Math.abs(dy) && horizontal){
+      if(dx<0 && node.scrollLeft+node.clientWidth<node.scrollWidth-1)return true;
+      if(dx>0 && node.scrollLeft>1)return true;
+    }
+    if(vertical){
+      if(dy<0 && node.scrollTop+node.clientHeight<node.scrollHeight-1)return true;
+      if(dy>0 && node.scrollTop>1)return true;
+    }
+    return false;
+  }
+  function utilityTouchStart(e){
+    if(!activeUtilityModal()||!e.touches?.length)return;
+    touchX=e.touches[0].clientX;
+    touchY=e.touches[0].clientY;
+  }
+  function utilityTouchMove(e){
+    const modal=activeUtilityModal();
+    if(!modal||!e.touches?.length)return;
+    if(!modal.contains(e.target)){e.preventDefault();return;}
+    const x=e.touches[0].clientX,y=e.touches[0].clientY;
+    const dx=x-touchX,dy=y-touchY;
+    touchX=x;touchY=y;
+    // 本文・図鑑リスト・技表のうち、実際にその方向へまだスクロールできる
+    // 要素がある場合だけネイティブスクロールを許可する。
+    let node=e.target instanceof Element?e.target:null;
+    while(node&&node!==modal){
+      if(node.matches?.('[data-utility-scroll],.pokedex-list,.dex-move-table-wrap') && canScrollInDirection(node,dx,dy))return;
+      node=node.parentElement;
+    }
+    // 上端/下端に達した後のスワイプを背景へ渡さない。
+    e.preventDefault();
+  }
+  function utilityWheel(e){
+    const modal=activeUtilityModal();
+    if(!modal)return;
+    if(!modal.contains(e.target)){e.preventDefault();return;}
+    let node=e.target instanceof Element?e.target:null;
+    const dx=-e.deltaX,dy=-e.deltaY;
+    while(node&&node!==modal){
+      if(node.matches?.('[data-utility-scroll],.pokedex-list,.dex-move-table-wrap') && canScrollInDirection(node,dx,dy))return;
+      node=node.parentElement;
+    }
+    e.preventDefault();
+  }
+  document.addEventListener("touchstart",utilityTouchStart,{capture:true,passive:true});
+  document.addEventListener("touchmove",utilityTouchMove,{capture:true,passive:false});
+  document.addEventListener("wheel",utilityWheel,{capture:true,passive:false});
+
   function openModal(el){
     if(!el)return;
     const wasOpen=!el.classList.contains("hidden");
     el.classList.remove("hidden");
     el.setAttribute("aria-hidden","false");
     if(!wasOpen){managedOpenModals.add(el);lockPageScroll();}
-    // 前回下まで読んだ状態を引き継がず、常に閉じるボタンが見える位置から開始。
-    const card=el.querySelector(".utility-modal-card");
-    if(card)card.scrollTop=0;
+    const scroller=el.querySelector("[data-utility-scroll]");
+    if(scroller)scroller.scrollTop=0;
+    const list=el.querySelector(".pokedex-list");
+    if(list)list.scrollTop=0;
   }
   function closeModal(el){
     if(!el)return;
@@ -81,7 +133,7 @@
       <h3>覚える技 <span class="view-note">${moves.length}種</span></h3>
       <div class="dex-move-table-wrap"><table class="dex-move-table"><thead><tr><th>技</th><th>タイプ</th><th>分類</th><th>威力</th><th>命中</th><th>PP</th><th>効果</th></tr></thead><tbody>${moveRows}</tbody></table></div>`;
   }
-  function openDex(){renderDexList();renderDexDetail();openModal(pokedexModal);pokedexSearch?.focus();}
+  function openDex(){renderDexList();renderDexDetail();openModal(pokedexModal);if(window.matchMedia?.("(pointer:fine)").matches&&window.innerWidth>760)pokedexSearch?.focus();}
 
   const ids={
     atkSpecies:$("damage-atk-species"),atkAbility:$("damage-atk-ability"),atkItem:$("damage-atk-item"),atkNature:$("damage-atk-nature"),atkHp:$("damage-atk-hp"),atkPoints:$("damage-atk-points"),atkStage:$("damage-atk-stage"),move:$("damage-move"),

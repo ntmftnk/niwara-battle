@@ -1,0 +1,29 @@
+ニワラバトル v9.1.2 監査メモ
+
+【確認した原因】
+- v9.1.1の背景固定処理がbodyにposition:fixed/top:-scrollYを設定していた。
+  iOS/standalone PWAではfixed子要素の座標系と干渉し、モーダル位置ずれの原因になり得る。
+- 図鑑open時に検索inputへ自動focusしていたため、iOSのソフトキーボード/Visual Viewport変化を誘発していた。
+- モーダルカード自体をスクロールコンテナにしていたため、ヘッダー/閉じるボタンと本文スクロールが同一領域だった。
+
+【v9.1.2変更】
+- body position:fixed方式を完全削除。
+- utility modal: fixed + inset:0 + viewport全面。
+- utility-modal-card: overflow:hiddenのflex column。
+- utility-modal-scroll: 本文専用スクロール領域。
+- ヘッダーはスクロール領域外。
+- html/body overflow lock + capture touchmove/wheel guard。
+- スクロール可能なmodal内部要素のみジェスチャーを許可し、境界ではpreventDefault。
+- mobileでpokedex searchの自動focusを無効化。
+- 同じ変更をdamage calc modalにも適用。
+
+【静的検証】
+- 全JSをnode --check: PASS
+- index.html HTMLParser読み込み: PASS
+- body.style.position/topによる固定処理の残存なし: PASS
+- v9.1.2 version文字列: index/pwa/swで更新確認
+- Service Worker app shell参照ファイル存在確認: PASS
+
+【ブラウザ自動試験について】
+この実行環境ではChromiumのhttp://127.0.0.1およびfile://ナビゲーションが管理ポリシーでERR_BLOCKED_BY_ADMINISTRATORとなり、実ブラウザの座標/タッチ自動試験は実施できませんでした。
+そのため、v9.1.2は実装構造・構文・参照関係を検証したリリースです。実機PWAでの確認を推奨します。
