@@ -687,7 +687,7 @@ button,.primary-button,.ghost-button,.dark-button,.move-button,.switch-button{to
 .dex-move-table th,.dex-move-table td{padding:8px;border-bottom:1px solid var(--border,#3f4b51);vertical-align:top;text-align:left;white-space:nowrap}
 .dex-move-table td:last-child{white-space:normal;min-width:240px}
 .damage-toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
-.damage-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.damage-grid,.speed-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .damage-side-card{border:1px solid var(--border,#3f4b51);border-radius:12px;padding:14px;display:grid;gap:9px}
 .damage-side-card label{display:grid;grid-template-columns:110px 1fr;gap:8px;align-items:center}
 .damage-side-card select,.damage-side-card input{min-width:0;width:100%}
@@ -704,7 +704,7 @@ button,.primary-button,.ghost-button,.dark-button,.move-button,.switch-button{to
 .damage-result strong{font-size:1.15em}
 @media (max-width:760px){
   .pokedex-layout{grid-template-columns:1fr}.pokedex-list{max-height:180px}.dex-stat-grid{grid-template-columns:repeat(4,1fr)}
-  .damage-grid{grid-template-columns:1fr}.damage-side-card label{grid-template-columns:92px 1fr}.utility-modal-card{width:100vw;max-height:100dvh;border-radius:0}
+  .damage-grid,.speed-grid{grid-template-columns:1fr}.damage-side-card label{grid-template-columns:92px 1fr}.utility-modal-card{width:100vw;max-height:100dvh;border-radius:0}
   .dex-move-table-wrap{max-height:42vh}
 }
 
@@ -777,7 +777,7 @@ body.utility-modal-open{
   touch-action:pan-y;
   scrollbar-gutter:stable;
 }
-#pokedex-close,#damage-calc-close{
+#pokedex-close,#damage-calc-close,#speed-check-close{
   flex:0 0 auto;
   min-width:72px;
   min-height:48px;
@@ -819,7 +819,7 @@ body.utility-modal-open{
     font-size:20px;
     line-height:1.25;
   }
-  #pokedex-close,#damage-calc-close{
+  #pokedex-close,#damage-calc-close,#speed-check-close{
     position:relative;
     z-index:25;
     min-width:82px;
@@ -843,3 +843,12 @@ body.utility-modal-open{
     max-height:none;
   }
 }
+
+/* v9.1.4 素早さ比較 */
+.speed-result-table{width:100%;border-collapse:collapse;margin-top:10px}
+.speed-result-table th,.speed-result-table td{padding:9px 10px;border-bottom:1px solid var(--border,#3f4b51);text-align:left;vertical-align:top}
+.speed-result-table th{white-space:nowrap}
+.speed-result-table .speed-impossible{font-weight:700}
+.speed-summary{display:grid;gap:4px;margin-bottom:8px}
+@media(max-width:560px){.speed-result-table{font-size:.9rem}.speed-result-table th,.speed-result-table td{padding:8px 6px}}
+\n\n/* v9.1.5 控え状態モーダル */\n.bench-status-body{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}\n.bench-status-section{min-width:0}\n.bench-status-section h3{margin:0 0 10px;font-size:17px}\n.bench-status-list{display:grid;gap:10px}\n.bench-status-card{border:1px solid #d9e0e4;border-radius:12px;padding:12px;background:#fff;min-width:0}\n.bench-status-card.fainted{opacity:.7}\n.bench-status-card.unknown{background:#f6f8f9;color:#65727a}\n.bench-status-card h4{margin:0 0 7px;font-size:16px}\n.bench-status-card pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.55}\n.bench-status-empty{padding:14px;border:1px dashed #cbd5db;border-radius:12px;color:#65727a}\n@media(max-width:700px){.bench-status-body{grid-template-columns:1fr}.bench-status-card{padding:11px}}\n

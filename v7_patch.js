@@ -555,7 +555,7 @@ processResidualForPokemon = function(pokemon) {
   if (pokemon.hp > 0 && pokemon.v7Ingrain && canRecover(pokemon) && pokemon.hp < pokemon.maxHP) {
     const before = pokemon.hp;
     pokemon.hp = Math.min(pokemon.maxHP, pokemon.hp + Math.max(1, Math.floor(pokemon.maxHP / 16)));
-    addLog(`${pokemon.name}は ねをはるで ${pokemon.hp - before} HP 回復した！`, "log-status");
+    addLog(`${pokemon.name}は ねをはるで ${pokemon.hp - before} HP 回復した！`, "log-status", pokemon);
   }
 };
 

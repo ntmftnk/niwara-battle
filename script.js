@@ -814,7 +814,7 @@ function trySitrusBerry(pokemon) {
     const before = pokemon.hp;
     pokemon.hp = Math.min(pokemon.maxHP, pokemon.hp + Math.floor(pokemon.maxHP / 4));
     pokemon.itemConsumed = true;
-    addLog(`${pokemon.name}は オボンのみで ${pokemon.hp - before} HP 回復した！`);
+    addLog(`${pokemon.name}は オボンのみで ${pokemon.hp - before} HP 回復した！`, "", pokemon);
   }
 }
 
@@ -1120,33 +1120,33 @@ function processResidualForPokemon(pokemon) {
     if (pokemon.hp < pokemon.maxHP) {
       const before = pokemon.hp;
       pokemon.hp = Math.min(pokemon.maxHP, pokemon.hp + Math.max(1, Math.floor(pokemon.maxHP / 8)));
-      addLog(`${pokemon.name}は ポイズンヒールで ${pokemon.hp - before} HP 回復した！`, "log-status");
+      addLog(`${pokemon.name}は ポイズンヒールで ${pokemon.hp - before} HP 回復した！`, "log-status", pokemon);
     }
   } else if (pokemon.status === "burn") {
     const damage = Math.max(1, Math.floor(pokemon.maxHP / 16));
     pokemon.hp = Math.max(0, pokemon.hp - damage);
-    addLog(`${pokemon.name}は やけどで ${damage} ダメージ！`, "log-status");
+    addLog(`${pokemon.name}は やけどで ${damage} ダメージ！`, "log-status", pokemon);
   } else if (pokemon.status === "poison") {
     const damage = Math.max(1, Math.floor(pokemon.maxHP / 8));
     pokemon.hp = Math.max(0, pokemon.hp - damage);
-    addLog(`${pokemon.name}は どくで ${damage} ダメージ！`, "log-status");
+    addLog(`${pokemon.name}は どくで ${damage} ダメージ！`, "log-status", pokemon);
   } else if (pokemon.status === "toxic") {
     const damage = Math.max(1, Math.floor((pokemon.maxHP * pokemon.toxicCounter) / 16));
     pokemon.hp = Math.max(0, pokemon.hp - damage);
     pokemon.toxicCounter++;
-    addLog(`${pokemon.name}は もうどくで ${damage} ダメージ！`, "log-status");
+    addLog(`${pokemon.name}は もうどくで ${damage} ダメージ！`, "log-status", pokemon);
   }
 
   if (pokemon.hp > 0 && weather.type === "sand" && !pokemon.types.some(t => ["いわ", "じめん", "はがね"].includes(t))) {
     const damage = Math.max(1, Math.floor(pokemon.maxHP / 16));
     pokemon.hp = Math.max(0, pokemon.hp - damage);
-    addLog(`${pokemon.name}は すなあらしで ${damage} ダメージ！`, "log-weather");
+    addLog(`${pokemon.name}は すなあらしで ${damage} ダメージ！`, "log-weather", pokemon);
   }
 
   if (pokemon.hp > 0 && !pokemon.itemConsumed && pokemon.item.id === "leftovers" && pokemon.hp < pokemon.maxHP) {
     const before = pokemon.hp;
     pokemon.hp = Math.min(pokemon.maxHP, pokemon.hp + Math.max(1, Math.floor(pokemon.maxHP / 16)));
-    addLog(`${pokemon.name}は たべのこしで ${pokemon.hp - before} HP 回復した！`);
+    addLog(`${pokemon.name}は たべのこしで ${pokemon.hp - before} HP 回復した！`, "", pokemon);
   }
 
   if (pokemon.hp > 0 && !pokemon.itemConsumed && pokemon.item.id === "toxic-orb" && !pokemon.status) {
@@ -1622,7 +1622,7 @@ function onSwitchOut(pokemon) {
   if (pokemon.ability.id === "regenerator" && pokemon.hp > 0 && pokemon.hp < pokemon.maxHP) {
     const before = pokemon.hp;
     pokemon.hp = Math.min(pokemon.maxHP, pokemon.hp + Math.max(1, Math.floor(pokemon.maxHP / 3)));
-    addLog(`${pokemon.name}は さいせいりょくで ${pokemon.hp - before} HP 回復した！`, "log-system");
+    addLog(`${pokemon.name}は さいせいりょくで ${pokemon.hp - before} HP 回復した！`, "log-system", pokemon);
   }
   if (pokemon.ability.id === "natural-cure" && pokemon.status) {
     pokemon.status = null;
@@ -2303,22 +2303,22 @@ function processResidualForPokemon(pokemon) {
     if (pokemon.hp < pokemon.maxHP && canRecover(pokemon)) {
       const before = pokemon.hp;
       pokemon.hp = Math.min(pokemon.maxHP, pokemon.hp + Math.max(1, Math.floor(pokemon.maxHP / 8)));
-      addLog(`${pokemon.name}は ポイズンヒールで ${pokemon.hp - before} HP 回復した！`, "log-status");
+      addLog(`${pokemon.name}は ポイズンヒールで ${pokemon.hp - before} HP 回復した！`, "log-status", pokemon);
     }
   } else if (pokemon.status === "burn") {
     let damage = Math.max(1, Math.floor(pokemon.maxHP / 16));
     if (pokemon.ability.id === "heatproof") damage = Math.max(1, Math.floor(damage / 2));
     pokemon.hp = Math.max(0, pokemon.hp - damage);
-    addLog(`${pokemon.name}は やけどで ${damage} ダメージ！`, "log-status");
+    addLog(`${pokemon.name}は やけどで ${damage} ダメージ！`, "log-status", pokemon);
   } else if (pokemon.status === "poison") {
     const damage = Math.max(1, Math.floor(pokemon.maxHP / 8));
     pokemon.hp = Math.max(0, pokemon.hp - damage);
-    addLog(`${pokemon.name}は どくで ${damage} ダメージ！`, "log-status");
+    addLog(`${pokemon.name}は どくで ${damage} ダメージ！`, "log-status", pokemon);
   } else if (pokemon.status === "toxic") {
     const damage = Math.max(1, Math.floor((pokemon.maxHP * pokemon.toxicCounter) / 16));
     pokemon.hp = Math.max(0, pokemon.hp - damage);
     pokemon.toxicCounter++;
-    addLog(`${pokemon.name}は もうどくで ${damage} ダメージ！`, "log-status");
+    addLog(`${pokemon.name}は もうどくで ${damage} ダメージ！`, "log-status", pokemon);
   }
 
   if (pokemon.hp <= 0) return;
@@ -2326,30 +2326,30 @@ function processResidualForPokemon(pokemon) {
   if (pokemon.seeded) {
     const damage = Math.max(1, Math.floor(pokemon.maxHP / 8));
     pokemon.hp = Math.max(0, pokemon.hp - damage);
-    addLog(`${pokemon.name}は やどりぎのタネで ${damage} HP 奪われた！`, "log-status");
+    addLog(`${pokemon.name}は やどりぎのタネで ${damage} HP 奪われた！`, "log-status", pokemon);
     const source = getActivePokemonBySide(pokemon.seededBySide);
     if (source && source.hp > 0 && canRecover(source)) {
       const before = source.hp;
       source.hp = Math.min(source.maxHP, source.hp + damage);
-      if (source.hp > before) addLog(`${source.name}は やどりぎで ${source.hp - before} HP 回復した！`, "log-status");
+      if (source.hp > before) addLog(`${source.name}は やどりぎで ${source.hp - before} HP 回復した！`, "log-status", source);
     }
   }
 
   if (pokemon.hp > 0 && weather.type === "sand" && !pokemon.types.some(t => ["いわ", "じめん", "はがね"].includes(t))) {
     const damage = Math.max(1, Math.floor(pokemon.maxHP / 16));
     pokemon.hp = Math.max(0, pokemon.hp - damage);
-    addLog(`${pokemon.name}は すなあらしで ${damage} ダメージ！`, "log-weather");
+    addLog(`${pokemon.name}は すなあらしで ${damage} ダメージ！`, "log-weather", pokemon);
   }
 
   if (pokemon.hp > 0 && pokemon.ability.id === "dry-skin") {
     if (weather.type === "rain" && pokemon.hp < pokemon.maxHP && canRecover(pokemon)) {
       const before = pokemon.hp;
       pokemon.hp = Math.min(pokemon.maxHP, pokemon.hp + Math.max(1, Math.floor(pokemon.maxHP / 8)));
-      addLog(`${pokemon.name}は かんそうはだで ${pokemon.hp - before} HP 回復した！`, "log-weather");
+      addLog(`${pokemon.name}は かんそうはだで ${pokemon.hp - before} HP 回復した！`, "log-weather", pokemon);
     } else if (weather.type === "sun") {
       const damage = Math.max(1, Math.floor(pokemon.maxHP / 8));
       pokemon.hp = Math.max(0, pokemon.hp - damage);
-      addLog(`${pokemon.name}は かんそうはだで ${damage} ダメージ！`, "log-weather");
+      addLog(`${pokemon.name}は かんそうはだで ${damage} ダメージ！`, "log-weather", pokemon);
     }
   }
 
@@ -2361,18 +2361,18 @@ function processResidualForPokemon(pokemon) {
   if (pokemon.hp > 0 && !pokemon.itemConsumed && pokemon.item.id === "leftovers" && pokemon.hp < pokemon.maxHP && canRecover(pokemon)) {
     const before = pokemon.hp;
     pokemon.hp = Math.min(pokemon.maxHP, pokemon.hp + Math.max(1, Math.floor(pokemon.maxHP / 16)));
-    addLog(`${pokemon.name}は たべのこしで ${pokemon.hp - before} HP 回復した！`);
+    addLog(`${pokemon.name}は たべのこしで ${pokemon.hp - before} HP 回復した！`, "", pokemon);
   }
 
   if (pokemon.hp > 0 && !pokemon.itemConsumed && pokemon.item.id === "black-sludge") {
     if (pokemon.types.includes("どく") && pokemon.hp < pokemon.maxHP && canRecover(pokemon)) {
       const before = pokemon.hp;
       pokemon.hp = Math.min(pokemon.maxHP, pokemon.hp + Math.max(1, Math.floor(pokemon.maxHP / 16)));
-      addLog(`${pokemon.name}は くろいヘドロで ${pokemon.hp - before} HP 回復した！`);
+      addLog(`${pokemon.name}は くろいヘドロで ${pokemon.hp - before} HP 回復した！`, "", pokemon);
     } else if (!pokemon.types.includes("どく")) {
       const damage = Math.max(1, Math.floor(pokemon.maxHP / 8));
       pokemon.hp = Math.max(0, pokemon.hp - damage);
-      addLog(`${pokemon.name}は くろいヘドロで ${damage} ダメージ！`);
+      addLog(`${pokemon.name}は くろいヘドロで ${damage} ダメージ！`, "", pokemon);
     }
   }
 

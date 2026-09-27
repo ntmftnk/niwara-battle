@@ -10,7 +10,7 @@
 (function () {
   "use strict";
 
-  const V8_VERSION = "9.1.3";
+  const V8_VERSION = "9.1.5";
   const V8_PARTY_LIBRARY_KEY = "niwaraBattlePartyLibraryV8";
   const V8_MAX_PARTIES = 30;
 
@@ -50,7 +50,13 @@
   const v8PassMessage = document.getElementById("pass-message");
   const v8PassContinueButton = document.getElementById("pass-continue-button");
   const v8TeamPreviewButton = document.getElementById("team-preview-button");
+  const v8BenchStatusButton = document.getElementById("bench-status-button");
   const v8CopyContextButton = document.getElementById("copy-battle-context-button");
+  const v8BenchStatusModal = document.getElementById("bench-status-modal");
+  const v8BenchStatusTitle = document.getElementById("bench-status-title");
+  const v8BenchStatusBody = document.getElementById("bench-status-body");
+  const v8BenchStatusNote = document.getElementById("bench-status-note");
+  const v8BenchStatusClose = document.getElementById("bench-status-close");
   const v8TeamPreviewModal = document.getElementById("team-preview-modal");
   const v8TeamPreviewTitle = document.getElementById("team-preview-title");
   const v8TeamPreviewBody = document.getElementById("team-preview-body");
@@ -918,7 +924,7 @@
     const labels={A:"プレイヤーA視点",B:"プレイヤーB視点",spectator:"観戦視点",god:"神視点"};
     const rosterLines=(side,roster)=>roster.map((set,i)=>`${i+1}. ${v8SelectionSetText(set,side,viewMode)}`);
     const lines=[
-      `【ニワラバトル v9.1.3 見せ合い状況コピー】`,
+      `【ニワラバトル v9.1.5 見せ合い状況コピー】`,
       `視点: ${labels[viewMode]}`,
       `対戦形式: ${v8BattleMode==="pvp"?"2人対戦":"対CPU戦"}`,
       `選出操作中: プレイヤー${isB?"B":"A"}`,
@@ -968,16 +974,73 @@
   function v8MarkItem(p){ if(p)v8EnsureKnowledge(p).item=true; }
 
   function v8AllBattlePokemon(){ return [...(playerTeam||[]),...(enemyTeam||[])].filter(Boolean); }
-  const V8_addLog = addLog;
-  addLog = function(text,className="") {
+  function v8ActiveBattlePokemon(){ return [getPlayerPokemon?.(),getEnemyPokemon?.()].filter(Boolean); }
+  function v8MarkUniqueEffectOwnerFromLog(text,kind){
     const s=String(text);
-    v8AllBattlePokemon().forEach(p=>{
-      // 同名の特性・持ち物を持つ控えまで誤って公開しないよう、ポケモン名と効果名の両方がログに出た個体だけ公開する。
-      if (p.ability?.name && s.includes(p.name) && s.includes(p.ability.name)) v8MarkAbility(p);
-      if (p.item?.name && p.item.id!=="none" && s.includes(p.name) && s.includes(p.item.name)) v8MarkItem(p);
-      if (s.includes(`${p.name}を くりだした`) || s.includes(`${p.name}！ キミにきめた`)) v8MarkSeen(p);
+    const candidates=v8AllBattlePokemon().filter(p=>{
+      if(!p?.name||!s.includes(p.name))return false;
+      if(kind==="ability")return Boolean(p.ability?.name&&s.includes(p.ability.name));
+      return Boolean(p.item?.id&&p.item.id!=="none"&&p.item?.name&&s.includes(p.item.name));
     });
-    return V8_addLog(text,className);
+    if(!candidates.length)return;
+    // 同名個体が両軍・控えに存在しても、場にいる一致個体が1匹だけならその個体だけを公開する。
+    // それでも曖昧なら「公開しない」側へ倒し、非公開情報の誤開示を優先して防ぐ。
+    const activeSet=new Set(v8ActiveBattlePokemon());
+    const activeMatches=candidates.filter(p=>activeSet.has(p));
+    const target=activeMatches.length===1?activeMatches[0]:(candidates.length===1?candidates[0]:null);
+    if(!target)return;
+    if(kind==="ability")v8MarkAbility(target);else v8MarkItem(target);
+  }
+  // v9.1.5: ログごとに「HP変化の対象側」を付与する。
+  // 表示時に A/B本人は実数、相手側は%へ変換するためのメタ情報であり、
+  // 非公開の最大HPそのものを画面やコピーへ出すことはない。
+  let v915MoveExecutionContext=null;
+  let v915ResidualPokemon=null;
+  const v915BatchContexts=new WeakMap();
+
+  function v915SideOfPokemon(p){
+    if(!p)return null;
+    if((playerTeam||[]).includes(p))return "player";
+    if((enemyTeam||[]).includes(p))return "enemy";
+    return null;
+  }
+  function v915HasHpAmount(text){
+    return /\b\d+\s+(?:HP\s+)?(?:ダメージ|回復|吸収|奪われ)|HPを\s+\d+\s+失った/.test(String(text));
+  }
+  function v915InferTargetFromText(text,ctx=null){
+    const t=String(text);
+    if(!v915HasHpAmount(t))return null;
+    if(ctx?.attacker&&ctx?.defender){
+      // 通常攻撃の無名ダメージ行は必ず防御側。
+      if(/^\s*\d+\s+ダメージ！/.test(t))return ctx.defender;
+      if(t.startsWith(`${ctx.attacker.name}は `)||t.startsWith(`${ctx.attacker.name}の `))return ctx.attacker;
+      if(t.startsWith(`${ctx.defender.name}は `)||t.startsWith(`${ctx.defender.name}に `))return ctx.defender;
+      if(t.includes("みがわり")&&/\d+\s+ダメージ/.test(t))return ctx.defender;
+    }
+    if(v915ResidualPokemon&&t.startsWith(`${v915ResidualPokemon.name}は `))return v915ResidualPokemon;
+    const active=v8ActiveBattlePokemon().filter(p=>p?.name&&t.startsWith(p.name));
+    if(active.length===1)return active[0];
+    const all=v8AllBattlePokemon().filter(p=>p?.name&&t.startsWith(p.name));
+    if(all.length===1)return all[0];
+    return null;
+  }
+  function v915AttachLogMeta(target){
+    if(!target||!battleLog?.length)return;
+    const side=v915SideOfPokemon(target);
+    if(!side||!target.maxHP)return;
+    const entry=battleLog[battleLog.length-1];
+    entry.v915HpTarget={side,maxHP:target.maxHP,name:target.name};
+  }
+
+  const V8_addLog = addLog;
+  addLog = function(text,className="",v915Target=null) {
+    // seen はログ文字列の名前から推測しない。実際に場へ出た個体だけを公開する。
+    v8MarkUniqueEffectOwnerFromLog(text,"ability");
+    v8MarkUniqueEffectOwnerFromLog(text,"item");
+    const result=V8_addLog(text,className);
+    const inferred=v915Target||v915InferTargetFromText(text,v915MoveExecutionContext);
+    if(inferred)v915AttachLogMeta(inferred);
+    return result;
   };
 
   const V8_ANNOUNCED_ENTRY_ABILITIES = new Set(["fairy-aura"]);
@@ -992,11 +1055,37 @@
 
   const V8_useMoveKnowledge = useMove;
   useMove = function(attacker, defender, move) {
-    const logs=V8_useMoveKnowledge(attacker,defender,move);
+    const prev=v915MoveExecutionContext;
+    const ctx={attacker,defender,move};
+    v915MoveExecutionContext=ctx;
+    let logs;
+    try{logs=V8_useMoveKnowledge(attacker,defender,move);}finally{v915MoveExecutionContext=prev;}
+    if(Array.isArray(logs))v915BatchContexts.set(logs,ctx);
     const name=move?.name || MOVE_DEX[move?.id]?.name;
     if (name && logs?.some?.(x=>String(x).includes(`${attacker.name}の ${name}`))) v8MarkMove(attacker,move.id);
     return logs;
   };
+
+  // useMove() が返したログ配列は、各行を対象ポケモンと結び付けて保存する。
+  const V915_addLogs=addLogs;
+  addLogs=function(logs){
+    const ctx=Array.isArray(logs)?v915BatchContexts.get(logs):null;
+    if(!ctx)return V915_addLogs(logs);
+    logs.forEach(text=>addLog(text,"",v915InferTargetFromText(text,ctx)));
+    v915BatchContexts.delete(logs);
+  };
+
+  if(typeof processResidualForPokemon==="function"){
+    const V915_processResidualForPokemon=processResidualForPokemon;
+    processResidualForPokemon=function(pokemon){
+      const prev=v915ResidualPokemon;v915ResidualPokemon=pokemon;
+      try{return V915_processResidualForPokemon(pokemon);}finally{v915ResidualPokemon=prev;}
+    };
+  }
+  // 交代時回復・設置物ダメージ・木の実なども同名個体を取り違えず対象側を記録する。
+  if(typeof onSwitchOut==="function"){const base=onSwitchOut;onSwitchOut=function(pokemon,...args){const prev=v915ResidualPokemon;v915ResidualPokemon=pokemon;try{return base(pokemon,...args);}finally{v915ResidualPokemon=prev;}};}
+  if(typeof v6EntryHazards==="function"){const base=v6EntryHazards;v6EntryHazards=function(pokemon,...args){const prev=v915ResidualPokemon;v915ResidualPokemon=pokemon;try{return base(pokemon,...args);}finally{v915ResidualPokemon=prev;}};}
+  if(typeof trySitrusBerry==="function"){const base=trySitrusBerry;trySitrusBerry=function(pokemon,...args){const prev=v915ResidualPokemon;v915ResidualPokemon=pokemon;try{return base(pokemon,...args);}finally{v915ResidualPokemon=prev;}};}
 
   const V8_setWeather=setWeather;
   setWeather=function(type,source=null){ const changed=V8_setWeather(type,source); if(changed){v8WeatherMeta={sourceSide:source?.side||null,sourcePokemon:source||null,extended:weather.turns>5};} return changed; };
@@ -1089,23 +1178,43 @@
     });
   }
 
-  function v8SanitizeLogForView(text,viewMode=v8ViewMode){
-    if(viewMode==="god")return String(text);
-    // exact damage/heal/HP cost is hidden outside god view. Battle events remain visible.
-    return String(text)
-      .replace(/\b\d+ HP (回復|吸収)した！/g,"HPを $1した！")
-      .replace(/\b\d+ HP 回復！/g,"HP回復！")
-      .replace(/\b\d+ HP 奪われた！/g,"HPを奪われた！")
-      .replace(/\b\d+ ダメージ！/g,"ダメージ！")
-      .replace(/HPを \d+ 失った！/g,"HPを失った！")
-      .replace(/で \d+ ダメージ！/g,"でダメージ！");
+  function v915PerspectiveOwnSide(viewMode){
+    if(viewMode==="A")return "player";
+    if(viewMode==="B")return "enemy";
+    return null;
+  }
+  function v915PercentAmount(amount,maxHP){
+    if(!maxHP)return null;
+    const pct=Math.round((Math.max(0,Number(amount)||0)/maxHP)*100);
+    return Math.max(1,Math.min(100,pct));
+  }
+  function v915FormatHpAmounts(text,meta,viewMode){
+    const raw=String(text);
+    if(viewMode==="god")return raw;
+    const own=v915PerspectiveOwnSide(viewMode);
+    const exact=Boolean(own&&meta?.side===own);
+    const canPercent=Boolean(meta?.side&&meta?.maxHP);
+    const repl=(n)=>{
+      if(exact)return String(n);
+      if(canPercent){const pct=v915PercentAmount(n,meta.maxHP);return `${pct}%`;}
+      return null;
+    };
+    let t=raw;
+    t=t.replace(/\b(\d+) HP (回復|吸収)した！/g,(m,n,kind)=>{const x=repl(n);return x===null?`HPを ${kind}した！`:`${x}${exact?" HP":""} ${kind}した！`;});
+    t=t.replace(/\b(\d+) HP 回復！/g,(m,n)=>{const x=repl(n);return x===null?"HP回復！":`${x}${exact?" HP":""} 回復！`;});
+    t=t.replace(/\b(\d+) HP 奪われた！/g,(m,n)=>{const x=repl(n);return x===null?"HPを奪われた！":`${x}${exact?" HP":""} 奪われた！`;});
+    t=t.replace(/\b(\d+) ダメージ！/g,(m,n)=>{const x=repl(n);return x===null?"ダメージ！":`${x} ダメージ！`;});
+    t=t.replace(/HPを (\d+) 失った！/g,(m,n)=>{const x=repl(n);return x===null?"HPを失った！":`HPを ${x}${exact?"":""} 失った！`;});
+    return t;
+  }
+  function v8SanitizeLogForView(entry,viewMode=v8ViewMode){
+    const log=typeof entry==="object"&&entry!==null?entry:{text:String(entry)};
+    return v915FormatHpAmounts(log.text,log.v915HpTarget||null,viewMode);
   }
 
-  function v8LogTextForView(text,viewMode=v8ViewMode){
-    let t=v8SanitizeLogForView(text,viewMode);
+  function v8LogTextForView(entry,viewMode=v8ViewMode){
+    let t=v8SanitizeLogForView(entry,viewMode);
     // エンジン内部のログ文では常に「自分」= player(A)、「相手」= enemy(B)。
-    // B視点でこれを反転してしまうと、Bの繰り出しや場の効果がA側として表示されるため、
-    // B/観戦/神視点では陣営を明示名へ正規化する。A視点だけは従来の自然な自分/相手表記を維持。
     if(viewMode==="B"||viewMode==="god"||viewMode==="spectator") {
       t=t.replaceAll("相手は ","プレイヤーBは ")
          .replaceAll("相手の場","プレイヤーBの場")
@@ -1116,13 +1225,13 @@
     return t;
   }
 
-  function v8SanitizeLog(text){ return v8SanitizeLogForView(text,v8ViewMode); }
+  function v8SanitizeLog(text){ return v8SanitizeLogForView({text},v8ViewMode); }
 
   function v8RenderLog(){
     battleLogElement.innerHTML="";
     battleLog.forEach(log=>{
       const d=document.createElement("div");
-      d.textContent=v8LogTextForView(log.text,v8ViewMode);
+      d.textContent=v8LogTextForView(log,v8ViewMode);
       if(log.className)d.className=log.className; battleLogElement.appendChild(d);
     });
     battleLogElement.scrollTop=battleLogElement.scrollHeight;
@@ -1198,6 +1307,43 @@
       `${privateInfo?"技":"公開済み技"}: ${moves}`
     ].join("\n");
   }
+  function v8BenchCard(side,p,index,viewMode){
+    const privateInfo=v8CanSeePrivateForView(side,viewMode);
+    const known=privateInfo||v8EnsureKnowledge(p).seen;
+    const card=document.createElement("article");
+    card.className=`bench-status-card${p.hp<=0?" fainted":""}${known?"":" unknown"}`;
+    const h=document.createElement("h4");
+    if(!known){h.textContent=`控え${index+1}: ???（未登場）`;card.appendChild(h);return card;}
+    h.textContent=`${p.name}${p.hp<=0?"（ひんし）":""}`;card.appendChild(h);
+    const pre=document.createElement("pre");pre.textContent=v8PublicPokemonText(p,side,viewMode);card.appendChild(pre);
+    return card;
+  }
+  function v8RenderBenchStatus(){
+    if(!v8BenchStatusBody)return;
+    v8BenchStatusBody.innerHTML="";
+    ["player","enemy"].forEach(side=>{
+      const sec=document.createElement("section");sec.className="bench-status-section";
+      const h=document.createElement("h3");h.textContent=`${v8SideLabelStatic(side)}の控え`;sec.appendChild(h);
+      const list=document.createElement("div");list.className="bench-status-list";
+      const team=v8GetTeam(side),active=v8GetIndex(side);const bench=team.map((p,i)=>({p,i})).filter(x=>x.i!==active);
+      if(!bench.length){const e=document.createElement("div");e.className="bench-status-empty";e.textContent="控えはいません。";list.appendChild(e);}
+      else bench.forEach(({p,i})=>list.appendChild(v8BenchCard(side,p,i,v8ViewMode)));
+      sec.appendChild(list);v8BenchStatusBody.appendChild(sec);
+    });
+    if(v8BenchStatusTitle)v8BenchStatusTitle.textContent=`控え状態（${v8ViewLabel(v8ViewMode)}）`;
+    if(v8BenchStatusNote)v8BenchStatusNote.textContent=v8ViewMode==="god"?"神視点：両者の完全情報を表示しています。":"現在の視点で公開されている情報だけを表示します。未登場の相手控えは ??? のままです。";
+  }
+  function v8OpenBenchStatus(){
+    if(!v8BenchStatusModal)return;v8RenderBenchStatus();
+    if(typeof window.v9OpenUtilityModal==="function")window.v9OpenUtilityModal(v8BenchStatusModal);
+    else{v8BenchStatusModal.classList.remove("hidden");v8BenchStatusModal.setAttribute("aria-hidden","false");}
+  }
+  function v8CloseBenchStatus(){
+    if(!v8BenchStatusModal)return;
+    if(typeof window.v9CloseUtilityModal==="function")window.v9CloseUtilityModal(v8BenchStatusModal);
+    else{v8BenchStatusModal.classList.add("hidden");v8BenchStatusModal.setAttribute("aria-hidden","true");}
+  }
+
   function v8FieldSnapshot(viewMode){
     const viewer=viewMode==="B"?"enemy":"player";
     const lines=[];
@@ -1261,7 +1407,7 @@
     else if(viewMode==="A") commandText=v8CommandOptionsText("player");
     else if(viewMode==="B"&&v8BattleMode==="pvp") commandText=v8CommandOptionsText("enemy");
     const lines=[
-      `【ニワラバトル v9.1.3 状況コピー】`,
+      `【ニワラバトル v9.1.5 状況コピー】`,
       `ターン: ${turnNumber}`,
       `視点: ${v8ViewLabel(viewMode)}`,
       `対戦形式: ${v8BattleMode==="pvp"?"2人対戦":"対CPU戦"}`,
@@ -1292,7 +1438,7 @@
       commandText,
       "",
       `【ここまでの対戦ログ（${v8ViewLabel(viewMode)}）】`,
-      ...(battleLog.length?battleLog.map(log=>v8LogTextForView(log.text,viewMode)):["ログなし"])
+      ...(battleLog.length?battleLog.map(log=>v8LogTextForView(log,viewMode)):["ログなし"])
     ];
     return lines.join("\n");
   }
@@ -1310,6 +1456,7 @@
   }
   function v8RenderUtilityButtons(){
     if(v8TeamPreviewButton)v8TeamPreviewButton.disabled=!playerTeam.length||!enemyTeam.length;
+    if(v8BenchStatusButton)v8BenchStatusButton.disabled=!playerTeam.length||!enemyTeam.length;
     if(v8CopyContextButton)v8CopyContextButton.disabled=!playerTeam.length||!enemyTeam.length;
   }
 
@@ -1330,7 +1477,7 @@
   function v8Active(side){return side==="player"?getPlayerPokemon():getEnemyPokemon();}
   function v8Other(side){return side==="player"?"enemy":"player";}
 
-  function v8ShowPass(title,message,cb){v8CloseTeamPreview();v8PassCallback=cb;v8PassTitle.textContent=title;v8PassMessage.textContent=message;v8PassOverlay.classList.remove("hidden");v8PassOverlay.setAttribute("aria-hidden","false");}
+  function v8ShowPass(title,message,cb){v8CloseTeamPreview();v8CloseBenchStatus();v8PassCallback=cb;v8PassTitle.textContent=title;v8PassMessage.textContent=message;v8PassOverlay.classList.remove("hidden");v8PassOverlay.setAttribute("aria-hidden","false");}
   function v8HidePass(){v8PassOverlay.classList.add("hidden");v8PassOverlay.setAttribute("aria-hidden","true");}
   function v8ControlSide(){if(v8ReplacementState?.choosingSide)return v8ReplacementState.choosingSide;if(v8PivotChoicePending?.side)return v8PivotChoicePending.side;return v8ActionPhase;}
   function v8HasBench(side){return v8GetTeam(side).some((p,i)=>i!==v8GetIndex(side)&&p.hp>0);}
@@ -1363,7 +1510,9 @@
       itemId:(privateInfo||k.item)?(p.itemConsumed?"none":p.item?.id):null,
       nature:privateInfo?p.nature:null,
       statPoints:privateInfo?{...p.statPoints}:null,
-      moveIds:privateInfo?p.moves.map(m=>m.id):[...k.moves]
+      moveIds:privateInfo?p.moves.map(m=>m.id):[...k.moves],
+      status:p.status||null,
+      tailwind:Boolean(fieldState?.tailwind?.[side]>0)
     };
   }
   window.__PBV8GetDamageBattleContext=function(){
@@ -1617,11 +1766,14 @@
   v8TeamPreviewButton?.addEventListener("click",v8OpenTeamPreview);
   v8TeamPreviewClose?.addEventListener("click",v8CloseTeamPreview);
   v8TeamPreviewModal?.querySelector?.("[data-close-team-preview]")?.addEventListener("click",v8CloseTeamPreview);
+  v8BenchStatusButton?.addEventListener("click",v8OpenBenchStatus);
+  v8BenchStatusClose?.addEventListener("click",v8CloseBenchStatus);
+  v8BenchStatusModal?.querySelector?.("[data-close-bench-status]")?.addEventListener("click",v8CloseBenchStatus);
   v8CopyContextButton?.addEventListener("click",v8CopyBattleContext);
   v8ViewButtons?.addEventListener("click",e=>{const b=e.target.closest?.("[data-view]");if(!b)return;v8ViewMode=b.dataset.view;renderAll();});
   v8Forfeit?.addEventListener("click",()=>{battleOver=true;v8ReplacementState=null;awaitingPlayerSwitch=false;v8HidePass();showScreen("mode");});
-  goBuilderButton.onclick=()=>{v8HidePass();v8CloseTeamPreview();showScreen("builder");};
-  document.addEventListener("keydown",e=>{if(e.key==="Escape")v8CloseTeamPreview();});
+  goBuilderButton.onclick=()=>{v8HidePass();v8CloseTeamPreview();v8CloseBenchStatus();showScreen("builder");};
+  document.addEventListener("keydown",e=>{if(e.key==="Escape"){v8CloseTeamPreview();v8CloseBenchStatus();}});
 
   // 初期化時はv8保存ライブラリも削除。
   resetAllButton.addEventListener("click",()=>{localStorage.removeItem(V8_PARTY_LIBRARY_KEY);v8SavedParties=[];setTimeout(()=>{v8LoadPartyLibrary();v8RenderPartyLibrary();},0);});
@@ -1629,7 +1781,7 @@
   // ------------------------------------------------------------
   // 起動
   // ------------------------------------------------------------
-  v8LoadPartyLibrary();v8RenderPartyLibrary();v8RenderBattleSourceOptions();renderBuilder();renderDataCounts();setBuilderMessage(`v${V8_VERSION}：ダメージ計算の公開情報保護、攻守入替、ドルピカの習得技調整を追加しました。`,false);showScreen("builder");
+  v8LoadPartyLibrary();v8RenderPartyLibrary();v8RenderBattleSourceOptions();renderBuilder();renderDataCounts();setBuilderMessage(`v${V8_VERSION}：控え状態確認と視点別のダメージ・回復ログ表示を追加しました。`,false);showScreen("builder");
 
   window.__PBV8={
     get savedParties(){return v8SavedParties;},buildStrongRandomTeam:v8BuildStrongRandomTeam,chooseCpuSelection:v8ChooseCpuSelection,validateTeam:v8ValidateTeam,

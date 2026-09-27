@@ -1,7 +1,8 @@
 // ============================================================
-// ニワラバトル v9.1.3 utility tools
+// ニワラバトル v9.1.5 utility tools
 // - 図鑑
 // - ダメージ計算シミュレーター
+// - 素早さ比較ツール
 // ============================================================
 (function(){
   "use strict";
@@ -9,6 +10,7 @@
   const $=id=>document.getElementById(id);
   const pokedexModal=$("pokedex-modal"), pokedexList=$("pokedex-list"), pokedexDetail=$("pokedex-detail"), pokedexSearch=$("pokedex-search");
   const damageModal=$("damage-calc-modal"), damageResult=$("damage-result");
+  const speedModal=$("speed-check-modal"), speedResult=$("speed-result");
   let selectedSpeciesId=Object.values(SPECIES_DEX).sort((a,b)=>(a.dexNo||9999)-(b.dexNo||9999))[0]?.id||null;
 
   // v9.1.2: iOS/PWA で body を position:fixed にすると、fixed 子要素の座標が
@@ -106,6 +108,9 @@
     el.setAttribute("aria-hidden","true");
     if(wasOpen){managedOpenModals.delete(el);unlockPageScroll();}
   }
+  // v9.1.5: 他のパッチからも同じiOS/PWA安全モーダル管理を利用できるよう公開。
+  window.v9OpenUtilityModal=openModal;
+  window.v9CloseUtilityModal=closeModal;
   function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
   function catName(c){return c==="physical"?"物理":c==="special"?"特殊":"変化";}
   const statPairs=[["hp","H"],["attack","A"],["defense","B"],["specialAttack","C"],["specialDefense","D"],["speed","S"]];
@@ -145,7 +150,7 @@
   function option(value,label){const o=document.createElement("option");o.value=value;o.textContent=label;return o;}
   function populateBaseSelects(){
     const sp=speciesSorted();[ids.atkSpecies,ids.defSpecies].forEach(sel=>{if(!sel)return;sel.innerHTML="";sp.forEach(s=>sel.appendChild(option(s.id,`No.${String(s.dexNo??"-").padStart(3,"0")} ${s.name}`)));});
-    const items=Object.values(ITEM_DEX).slice().sort((a,b)=>a.name.localeCompare(b.name,"ja"));[ids.atkItem,ids.defItem].forEach(sel=>{if(!sel)return;sel.innerHTML="";sel.appendChild(option("","持ち物を仮定して選択…"));items.forEach(i=>sel.appendChild(option(i.id,i.name)));sel.value="none";});
+    const items=Object.values(ITEM_DEX).filter(i=>i.id!=="none").slice().sort((a,b)=>a.name.localeCompare(b.name,"ja"));[ids.atkItem,ids.defItem].forEach(sel=>{if(!sel)return;sel.innerHTML="";sel.appendChild(option("","持ち物を仮定して選択…"));sel.appendChild(option("none","なし"));items.forEach(i=>sel.appendChild(option(i.id,i.name)));sel.value="none";});
     [ids.atkNature,ids.defNature].forEach(sel=>{if(!sel)return;sel.innerHTML="";sel.appendChild(option("","性格を仮定して選択…"));Object.keys(NATURES).forEach(n=>sel.appendChild(option(n,n)));sel.value="まじめ";});
     [ids.atkStage,ids.defStage].forEach(sel=>{if(!sel)return;sel.innerHTML="";for(let i=-6;i<=6;i++)sel.appendChild(option(String(i),i>0?`+${i}`:String(i)));sel.value="0";});
     [[ids.atkPoints,"atk"],[ids.defPoints,"def"]].forEach(([wrap,prefix])=>{if(!wrap)return;wrap.innerHTML="";statPairs.forEach(([key,label])=>{const l=document.createElement("label");l.innerHTML=`<span>${label}</span><input type="number" min="0" max="32" value="0" data-dmg-side="${prefix}" data-stat="${key}" aria-label="${prefix} ${label}能力P">`;wrap.appendChild(l);});});
@@ -270,10 +275,113 @@
   }
   function openDamage(){openModal(damageModal);}
 
+  // ------------------------------------------------------------
+  // v9.1.5 素早さ比較ツール
+  // ------------------------------------------------------------
+  const speedIds={
+    targetSpecies:$("speed-target-species"),targetAbility:$("speed-target-ability"),targetItem:$("speed-target-item"),targetNature:$("speed-target-nature"),targetPoints:$("speed-target-points"),targetStage:$("speed-target-stage"),targetParalysis:$("speed-target-paralysis"),targetTailwind:$("speed-target-tailwind"),
+    chaserSpecies:$("speed-chaser-species"),chaserAbility:$("speed-chaser-ability"),chaserItem:$("speed-chaser-item"),chaserStage:$("speed-chaser-stage"),chaserParalysis:$("speed-chaser-paralysis"),chaserTailwind:$("speed-chaser-tailwind")
+  };
+  const speedLoadNotes={target:$("speed-target-load-note"),chaser:$("speed-chaser-load-note")};
+  function fillItemSelect(sel,unknownLabel="持ち物を仮定して選択…"){
+    if(!sel)return;
+    const items=Object.values(ITEM_DEX).filter(i=>i.id!=="none").slice().sort((a,b)=>a.name.localeCompare(b.name,"ja"));
+    sel.innerHTML="";sel.appendChild(option("",unknownLabel));sel.appendChild(option("none","なし"));items.forEach(i=>sel.appendChild(option(i.id,i.name)));sel.value="none";
+  }
+  function speedRefreshAbility(side){
+    const speciesSel=speedIds[side+"Species"],abilitySel=speedIds[side+"Ability"];
+    const sp=SPECIES_DEX[speciesSel?.value];if(!sp||!abilitySel)return;
+    const prev=abilitySel.value;abilitySel.innerHTML="";sp.abilities.forEach(a=>abilitySel.appendChild(option(a.id,a.name)));
+    abilitySel.value=[...abilitySel.options].some(o=>o.value===prev)?prev:(sp.abilities[0]?.id||"");
+  }
+  function populateSpeedTool(){
+    const sp=speciesSorted();[speedIds.targetSpecies,speedIds.chaserSpecies].forEach(sel=>{if(!sel)return;sel.innerHTML="";sp.forEach(x=>sel.appendChild(option(x.id,`No.${String(x.dexNo??"-").padStart(3,"0")} ${x.name}`)));});
+    fillItemSelect(speedIds.targetItem);fillItemSelect(speedIds.chaserItem);
+    if(speedIds.targetNature){speedIds.targetNature.innerHTML="";speedIds.targetNature.appendChild(option("","性格を仮定して選択…"));Object.keys(NATURES).forEach(n=>speedIds.targetNature.appendChild(option(n,n)));speedIds.targetNature.value="まじめ";}
+    [speedIds.targetStage,speedIds.chaserStage].forEach(sel=>{if(!sel)return;sel.innerHTML="";for(let i=-6;i<=6;i++)sel.appendChild(option(String(i),i>0?`+${i}`:String(i)));sel.value="0";});
+    if(speedIds.targetSpecies&&speedIds.chaserSpecies){speedIds.targetSpecies.value=sp[0]?.id||"";speedIds.chaserSpecies.value=sp[1]?.id||sp[0]?.id||"";speedRefreshAbility("target");speedRefreshAbility("chaser");}
+  }
+  function speedUnknownSelect(sel,label){prependUnknownOption(sel,label);}
+  function speedSetLoadNote(side,snapshot){
+    const el=speedLoadNotes[side];if(!el)return;if(!snapshot){el.textContent="";return;}
+    el.classList.toggle("is-private",Boolean(snapshot.privateInfo));el.classList.toggle("is-public",!snapshot.privateInfo);
+    if(snapshot.privateInfo){el.textContent=side==="target"?"自分側の現在値を反映しました。":"自分側の特性・持ち物・現在ランクを反映しました。結果は3種類の性格補正で比較します。";return;}
+    const known=[];if(snapshot.abilityId)known.push("特性");if(snapshot.itemId)known.push("持ち物");
+    el.textContent=`公開情報のみ反映${known.length?`（公開済み${known.join("/ ")}を含む）`:""}。性格・S能力P・未公開特性/持ち物は取得していません。`;
+  }
+  function speedSetSnapshot(side,snapshot){
+    if(!snapshot)return;const speciesSel=speedIds[side+"Species"],abilitySel=speedIds[side+"Ability"],itemSel=speedIds[side+"Item"];
+    speciesSel.value=snapshot.speciesId;speedRefreshAbility(side);
+    if(snapshot.abilityId&&[...abilitySel.options].some(o=>o.value===snapshot.abilityId))abilitySel.value=snapshot.abilityId;else speedUnknownSelect(abilitySel,"特性は未公開（仮定して選択）");
+    if(snapshot.itemId&&[...itemSel.options].some(o=>o.value===snapshot.itemId))itemSel.value=snapshot.itemId;else speedUnknownSelect(itemSel,"持ち物は未公開（仮定して選択）");
+    speedIds[side+"Stage"].value=String(snapshot.stages?.speed??0);
+    speedIds[side+"Paralysis"].checked=snapshot.status==="paralysis";
+    speedIds[side+"Tailwind"].checked=Boolean(snapshot.tailwind);
+    if(side==="target"){
+      speedIds.targetNature.value=snapshot.privateInfo&&snapshot.nature&&NATURES[snapshot.nature]?snapshot.nature:"";
+      speedIds.targetPoints.value=snapshot.privateInfo?String(snapshot.statPoints?.speed??0):"";
+      speedIds.targetPoints.placeholder=snapshot.privateInfo?"0":"0（仮定）";
+    }
+    speedSetLoadNote(side,snapshot);
+  }
+  function loadCurrentSpeed(){
+    try{
+      const ctx=window.__PBV8GetDamageBattleContext?.();if(!ctx?.player||!ctx?.enemy)throw new Error("対戦中の公開情報を取得できません");
+      let target,chaser;
+      if(ctx.privateSide==="enemy"){target=ctx.player;chaser=ctx.enemy;}else{target=ctx.enemy;chaser=ctx.player;}
+      speedSetSnapshot("target",target);speedSetSnapshot("chaser",chaser);
+      const perspective=ctx.privateSide==="player"?"プレイヤーA":ctx.privateSide==="enemy"?"プレイヤーB":"公開視点";
+      speedResult.textContent=`現在の対面を${perspective}基準で読み込みました。相手側の非公開情報は読み込んでいません。空欄は仮定して入力してください。`;
+    }catch(e){console.warn(e);speedResult.textContent="対戦中の公開情報を取得できません。手動で条件を指定してください。";}
+  }
+  function validateSpeedSide(side,natureName,points){
+    const sp=SPECIES_DEX[speedIds[side+"Species"]?.value];if(!sp)throw new Error(`${side==="target"?"基準":"比較"}ポケモンを選んでください。`);
+    const abilityId=speedIds[side+"Ability"]?.value,itemId=speedIds[side+"Item"]?.value;
+    if(!abilityId)throw new Error(`${side==="target"?"基準":"比較"}側の特性を仮定して選んでください。`);
+    if(!itemId)throw new Error(`${side==="target"?"基準":"比較"}側の持ち物を「なし」を含めて仮定してください。`);
+    if(natureName!==undefined&&!natureName)throw new Error("基準側の性格を仮定して選んでください。");
+    return{sp,abilityId,itemId,natureName,points};
+  }
+  function speedValue(speciesId,abilityId,itemId,natureName,points,stage,paralysis,tailwind){
+    const sp=SPECIES_DEX[speciesId];if(!sp)return 0;
+    // 現行エンジンの getModifiedStat と同じ順序。特性による直接S倍率は現状なく、
+    // かそく/かざぐるま等は実際のSランクを指定して再現する。
+    let value=calculateStat(sp.baseStats.speed,Math.max(0,Math.min(32,Number(points)||0)),natureName,"speed");
+    value=Math.floor(value*getStageMultiplier(Number(stage)||0));
+    if(paralysis)value=Math.floor(value*0.5);
+    if(itemId==="choice-scarf")value=Math.floor(value*1.5);
+    if(tailwind)value*=2;
+    return Math.max(1,Math.floor(value));
+  }
+  function calcSpeed(){
+    try{
+      const targetPointsRaw=speedIds.targetPoints.value;const targetPoints=targetPointsRaw===""?0:Number(targetPointsRaw);
+      if(!Number.isFinite(targetPoints)||targetPoints<0||targetPoints>32)throw new Error("基準側のS能力Pは0～32で指定してください。");
+      const target=validateSpeedSide("target",speedIds.targetNature.value,targetPoints);const chaser=validateSpeedSide("chaser");
+      const targetSpeed=speedValue(target.sp.id,target.abilityId,target.itemId,target.natureName,targetPoints,speedIds.targetStage.value,speedIds.targetParalysis.checked,speedIds.targetTailwind.checked);
+      const classes=[
+        {label:"上昇補正",nature:"ようき",examples:"ようき / おくびょう等"},
+        {label:"無補正",nature:"まじめ",examples:"まじめ / がんばりや等"},
+        {label:"下降補正",nature:"ゆうかん",examples:"ゆうかん / れいせい等"}
+      ];
+      const rows=classes.map(c=>{
+        let needed=null,got=null;for(let pts=0;pts<=32;pts++){const v=speedValue(chaser.sp.id,chaser.abilityId,chaser.itemId,c.nature,pts,speedIds.chaserStage.value,speedIds.chaserParalysis.checked,speedIds.chaserTailwind.checked);if(v>targetSpeed){needed=pts;got=v;break;}}
+        const max=speedValue(chaser.sp.id,chaser.abilityId,chaser.itemId,c.nature,32,speedIds.chaserStage.value,speedIds.chaserParalysis.checked,speedIds.chaserTailwind.checked);
+        return `<tr><th>${esc(c.label)}<div class="view-note">${esc(c.examples)}</div></th><td>${needed===null?'<span class="speed-impossible">32でも抜けない</span>':`<strong>${needed}</strong>`}</td><td>${needed===null?`${max}（最大）`:`${got}`}</td></tr>`;
+      }).join("");
+      const assumptions=[];if(targetPointsRaw==="")assumptions.push("基準側S能力P=0を仮定");
+      if(target.abilityId==="speed-boost"||chaser.abilityId==="speed-boost")assumptions.push("かそくの上昇分はSランク欄で指定");
+      if(target.abilityId==="windmill"||chaser.abilityId==="windmill")assumptions.push("かざぐるまの上昇分はSランク欄で指定");
+      speedResult.innerHTML=`<div class="speed-summary"><strong>${esc(target.sp.name)}の実効S：${targetSpeed}</strong><span>${esc(chaser.sp.name)}がこれを上回るための最小S能力P</span>${assumptions.length?`<span class="view-note">${esc(assumptions.join(" / "))}</span>`:""}</div><table class="speed-result-table"><thead><tr><th>性格補正</th><th>必要S能力P</th><th>その時の実効S</th></tr></thead><tbody>${rows}</tbody></table>`;
+    }catch(e){console.error(e);speedResult.innerHTML=`<strong>計算できませんでした。</strong><br>${esc(e?.message||e)}`;}
+  }
+  function openSpeed(){openModal(speedModal);}
+
   $("open-pokedex-button")?.addEventListener("click",openDex);$("battle-pokedex-button")?.addEventListener("click",openDex);$("pokedex-close")?.addEventListener("click",()=>closeModal(pokedexModal));pokedexModal?.querySelector("[data-close-pokedex]")?.addEventListener("click",()=>closeModal(pokedexModal));pokedexSearch?.addEventListener("input",renderDexList);
   $("open-damage-calc-button")?.addEventListener("click",openDamage);$("battle-damage-calc-button")?.addEventListener("click",openDamage);$("damage-calc-close")?.addEventListener("click",()=>closeModal(damageModal));damageModal?.querySelector("[data-close-damage-calc]")?.addEventListener("click",()=>closeModal(damageModal));$("damage-load-current")?.addEventListener("click",loadCurrent);$("damage-swap-sides")?.addEventListener("click",swapDamageSides);$("damage-calculate")?.addEventListener("click",calcDamage);
+  $("open-speed-check-button")?.addEventListener("click",openSpeed);$("battle-speed-check-button")?.addEventListener("click",openSpeed);$("speed-check-close")?.addEventListener("click",()=>closeModal(speedModal));speedModal?.querySelector("[data-close-speed-check]")?.addEventListener("click",()=>closeModal(speedModal));$("speed-load-current")?.addEventListener("click",loadCurrentSpeed);$("speed-calculate")?.addEventListener("click",calcSpeed);speedIds.targetSpecies?.addEventListener("change",()=>{speedSetLoadNote("target",null);speedRefreshAbility("target");});speedIds.chaserSpecies?.addEventListener("change",()=>{speedSetLoadNote("chaser",null);speedRefreshAbility("chaser");});
   ids.atkSpecies?.addEventListener("change",()=>{loadedBattleSnapshots.atk=null;setLoadNote("atk",null);refreshSide("atk");});ids.defSpecies?.addEventListener("change",()=>{loadedBattleSnapshots.def=null;setLoadNote("def",null);refreshSide("def");});ids.move?.addEventListener("change",syncLoadedStagesToMove);
-  document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeModal(pokedexModal);closeModal(damageModal);}});
-  populateBaseSelects();renderDexList();renderDexDetail();
-  window.__PBV9Tools={openDex,openDamage,calcDamage,loadCurrent,swapDamageSides};
+  document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeModal(pokedexModal);closeModal(damageModal);closeModal(speedModal);}});
+  populateBaseSelects();populateSpeedTool();renderDexList();renderDexDetail();
+  window.__PBV9Tools={openDex,openDamage,calcDamage,loadCurrent,swapDamageSides,openSpeed,calcSpeed,loadCurrentSpeed};
 })();

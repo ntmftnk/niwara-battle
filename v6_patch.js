@@ -754,13 +754,13 @@ function v6EntryHazards(pokemon) {
     const eff = getTypeEffectiveness("いわ", pokemon.types);
     const damage = Math.max(1, Math.floor(pokemon.maxHP / 8 * eff));
     pokemon.hp = Math.max(0, pokemon.hp - damage);
-    addLog(`${pokemon.name}は ステルスロックで ${damage} ダメージ！`, "log-status");
+    addLog(`${pokemon.name}は ステルスロックで ${damage} ダメージ！`, "log-status", pokemon);
   }
   if (pokemon.hp > 0 && state.spikes > 0 && v6IsGrounded(pokemon)) {
     const denom = state.spikes === 1 ? 8 : state.spikes === 2 ? 6 : 4;
     const damage = Math.max(1, Math.floor(pokemon.maxHP / denom));
     pokemon.hp = Math.max(0, pokemon.hp - damage);
-    addLog(`${pokemon.name}は まきびしで ${damage} ダメージ！`, "log-status");
+    addLog(`${pokemon.name}は まきびしで ${damage} ダメージ！`, "log-status", pokemon);
   }
 }
 
@@ -1295,13 +1295,13 @@ processResidualForPokemon = function(pokemon) {
   if (pokemon.hp <= 0) return;
 
   if (pokemon.aquaRing && canRecover(pokemon) && pokemon.hp < pokemon.maxHP) {
-    const before = pokemon.hp; pokemon.hp = Math.min(pokemon.maxHP, pokemon.hp + Math.max(1, Math.floor(pokemon.maxHP / 16))); addLog(`${pokemon.name}は アクアリングで ${pokemon.hp - before} HP 回復した！`, "log-status");
+    const before = pokemon.hp; pokemon.hp = Math.min(pokemon.maxHP, pokemon.hp + Math.max(1, Math.floor(pokemon.maxHP / 16))); addLog(`${pokemon.name}は アクアリングで ${pokemon.hp - before} HP 回復した！`, "log-status", pokemon);
   }
   if (pokemon.cursed) {
-    const damage = Math.max(1, Math.floor(pokemon.maxHP / 4)); pokemon.hp = Math.max(0, pokemon.hp - damage); addLog(`${pokemon.name}は のろいで ${damage} ダメージ！`, "log-status");
+    const damage = Math.max(1, Math.floor(pokemon.maxHP / 4)); pokemon.hp = Math.max(0, pokemon.hp - damage); addLog(`${pokemon.name}は のろいで ${damage} ダメージ！`, "log-status", pokemon);
   }
   if (pokemon.hp > 0 && pokemon.boundTurns > 0) {
-    const ratio = pokemon.boundEnhanced ? 1/6 : 1/8; const damage = Math.max(1, Math.floor(pokemon.maxHP * ratio)); pokemon.hp = Math.max(0, pokemon.hp - damage); pokemon.boundTurns--; addLog(`${pokemon.name}は 拘束で ${damage} ダメージ！`, "log-status"); if (pokemon.boundTurns <= 0) addLog(`${pokemon.name}は 拘束から解放された！`, "log-status");
+    const ratio = pokemon.boundEnhanced ? 1/6 : 1/8; const damage = Math.max(1, Math.floor(pokemon.maxHP * ratio)); pokemon.hp = Math.max(0, pokemon.hp - damage); pokemon.boundTurns--; addLog(`${pokemon.name}は 拘束で ${damage} ダメージ！`, "log-status", pokemon); if (pokemon.boundTurns <= 0) addLog(`${pokemon.name}は 拘束から解放された！`, "log-status");
   }
   if (pokemon.hp > 0 && pokemon.yawnTurns > 0) {
     pokemon.yawnTurns--;
@@ -1309,7 +1309,7 @@ processResidualForPokemon = function(pokemon) {
   }
   const v6 = v6EnsureFieldState();
   if (pokemon.hp > 0 && v6.terrain.type === "grassy" && v6IsGrounded(pokemon) && canRecover(pokemon) && pokemon.hp < pokemon.maxHP) {
-    const before = pokemon.hp; pokemon.hp = Math.min(pokemon.maxHP, pokemon.hp + Math.max(1, Math.floor(pokemon.maxHP / 16))); addLog(`${pokemon.name}は グラスフィールドで ${pokemon.hp - before} HP 回復した！`, "log-system");
+    const before = pokemon.hp; pokemon.hp = Math.min(pokemon.maxHP, pokemon.hp + Math.max(1, Math.floor(pokemon.maxHP / 16))); addLog(`${pokemon.name}は グラスフィールドで ${pokemon.hp - before} HP 回復した！`, "log-system", pokemon);
   }
 };
 
@@ -1340,7 +1340,7 @@ endTurn = function() {
       s.wish.turns--;
       if (s.wish.turns <= 0) {
         const p = getActivePokemonBySide(side);
-        if (p && p.hp > 0 && canRecover(p)) { const before = p.hp; p.hp = Math.min(p.maxHP, p.hp + s.wish.amount); addLog(`${p.name}の 願いがかなった！ ${p.hp - before} HP 回復！`, "log-system"); }
+        if (p && p.hp > 0 && canRecover(p)) { const before = p.hp; p.hp = Math.min(p.maxHP, p.hp + s.wish.amount); addLog(`${p.name}の 願いがかなった！ ${p.hp - before} HP 回復！`, "log-system", p); }
         s.wish = null;
       }
     }
@@ -1371,7 +1371,7 @@ endTurn = function() {
             if (target.substituteHP > 0) {
               const subDealt = Math.min(target.substituteHP, dealt);
               target.substituteHP = Math.max(0, target.substituteHP - dealt);
-              addLog(`${target.name}の みがわりに みらいよちの攻撃！ ${subDealt} ダメージ！`, "log-system");
+              addLog(`${target.name}の みがわりに みらいよちの攻撃！ ${subDealt} ダメージ！`, "log-system", target);
               if (target.substituteHP <= 0) addLog(`${target.name}の みがわりは 壊れた！`, "log-system");
             } else if (result.effectiveness === 0) {
               addLog(`${target.name}への みらいよちは 効果がないようだ……`, "log-system");
@@ -1384,7 +1384,7 @@ endTurn = function() {
                 else if (v6ItemIsActive(target) && target.item.id === "focus-sash" && fullBefore) { target.itemConsumed = true; dealt = target.hp - 1; addLog(`${target.name}は きあいのタスキで耐えた！`, "log-system"); }
               }
               target.hp = Math.max(0, target.hp - dealt);
-              addLog(`${target.name}に みらいよちの攻撃！ ${dealt} ダメージ！ ${getEffectivenessText(result.effectiveness)}`, "log-system");
+              addLog(`${target.name}に みらいよちの攻撃！ ${dealt} ダメージ！ ${getEffectivenessText(result.effectiveness)}`, "log-system", target);
               if (result.critical) addLog("急所に当たった！", "log-system");
               trySitrusBerry(target);
             }
