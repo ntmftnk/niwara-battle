@@ -2324,6 +2324,8 @@ function v6EnsureFieldState() {
           quickGuard: false,
           stealthRock: false,
           spikes: 0,
+          stickyWeb: false,
+          toxicSpikes: 0,
           wish: null,
           futureSight: null
         },
@@ -2335,6 +2337,8 @@ function v6EnsureFieldState() {
           quickGuard: false,
           stealthRock: false,
           spikes: 0,
+          stickyWeb: false,
+          toxicSpikes: 0,
           wish: null,
           futureSight: null
         }
@@ -2345,7 +2349,11 @@ function v6EnsureFieldState() {
 }
 
 function v6GetSideState(side) {
-  return v6EnsureFieldState().sides[side];
+  const state = v6EnsureFieldState().sides[side];
+  // v12.0.1: 旧セーブ/旧バトル状態でも追加設置物を安全に補完する。
+  if (state.stickyWeb === undefined) state.stickyWeb = false;
+  if (state.toxicSpikes === undefined) state.toxicSpikes = 0;
+  return state;
 }
 
 function v6ItemIsActive(pokemon) {
@@ -3011,12 +3019,16 @@ function v6ApplyHazard(side, hazard, logs) {
     if (state.spikes >= 3) logs.push("まきびしは これ以上重ねられない！");
     else { state.spikes++; logs.push(`${side === "player" ? "自分" : "相手"}の場に まきびしをまいた！（${state.spikes}段）`); }
   }
+  if (hazard === "stickyWeb") {
+    if (state.stickyWeb) logs.push("ねばねばネットは すでに張られている！");
+    else { state.stickyWeb = true; logs.push(`${side === "player" ? "自分" : "相手"}の場に ねばねばネットを張った！`); }
+  }
 }
 
 function v6ClearHazardsAndScreens() {
   ["player", "enemy"].forEach(side => {
     const s = v6GetSideState(side);
-    s.stealthRock = false; s.spikes = 0; s.reflect = 0; s.lightScreen = 0;
+    s.stealthRock = false; s.spikes = 0; s.stickyWeb = false; s.reflect = 0; s.lightScreen = 0;
   });
   v6EnsureFieldState().terrain = { type: null, turns: 0 };
 }
@@ -3576,7 +3588,7 @@ useMove = function(attacker, defender, originalMove) {
   if (move.knockOff && v6ItemIsActive(defender) && defender.item.id !== "none" && defender.hp > 0) { defender.itemConsumed = true; logs.push(`${defender.name}の ${defender.item.name}を はたき落とした！`); }
   if (move.bugBite && v6ItemIsActive(defender) && /berry|オボン|ラム|カゴ/.test(defender.item.id + defender.item.name)) { defender.itemConsumed = true; logs.push(`${attacker.name}は ${defender.name}の ${defender.item.name}を 食べた！`); }
   if (move.rapidSpin) {
-    const s = v6GetSideState(attacker.side); s.stealthRock = false; s.spikes = 0; attacker.boundTurns = 0; attacker.seeded = false; logs.push(`${attacker.name}側の 設置技・拘束が取り除かれた！`);
+    const s = v6GetSideState(attacker.side); s.stealthRock = false; s.spikes = 0; s.toxicSpikes = 0; s.stickyWeb = false; attacker.boundTurns = 0; attacker.seeded = false; logs.push(`${attacker.name}側の 設置技・拘束が取り除かれた！`);
   }
   if (move.forceSwitchOnHit && defender.hp > 0) v6ForceSwitch(defender.side, logs);
   if (move.pivot && attacker.hp > 0) autoPivot(attacker.side);
@@ -4892,7 +4904,7 @@ useMove = function(attacker, defender, originalMove) {
   if (move.clearFieldStructures && defender.hp < beforeDefHP && v7MoveSucceeded(logs)) {
     ["player", "enemy"].forEach(side => {
       const s = v7EnsureSideState(side);
-      s.stealthRock = false; s.spikes = 0; s.toxicSpikes = 0;
+      s.stealthRock = false; s.spikes = 0; s.toxicSpikes = 0; s.stickyWeb = false;
       s.reflect = 0; s.lightScreen = 0; s.mist = 0; s.safeguard = 0;
     });
     const f = v6EnsureFieldState();
@@ -5000,11 +5012,19 @@ activateEntryAbility = function(pokemon) {
   if (!pokemon || pokemon.hp <= 0) return;
 
   const sideState = v7EnsureSideState(pokemon.side);
+
+  // v12.0.1: ねばねばネット。接地している交代先のSを1段階下げる。
+  // あつぞこブーツは設置技を無視するが、マジックガードは能力低下までは防がない。
+  if (sideState.stickyWeb && v6IsGrounded(pokemon) && !(v6ItemIsActive(pokemon) && pokemon.item.id === "heavy-duty-boots")) {
+    addLog(changeStage(pokemon, "speed", -1, { side: pokemon.side === "player" ? "enemy" : "player" }), "log-status", pokemon);
+  }
+
   if (sideState.toxicSpikes > 0 && v6IsGrounded(pokemon)) {
+    // あつぞこブーツでも、接地したどくタイプはどくびし自体を吸収する。
     if (pokemon.types.includes("どく")) {
       sideState.toxicSpikes = 0;
       addLog(`${pokemon.name}は どくびしを 吸収した！`, "log-system");
-    } else if (!pokemon.types.includes("はがね") && !pokemon.status) {
+    } else if (!(v6ItemIsActive(pokemon) && pokemon.item.id === "heavy-duty-boots") && !pokemon.types.includes("はがね") && !pokemon.status) {
       addLog(inflictStatus(pokemon, sideState.toxicSpikes >= 2 ? "toxic" : "poison"), "log-status");
     }
   }
@@ -5334,10 +5354,16 @@ scoreMove = function(attacker, defender, move) {
   // 画面切替：modeを追加
   // ------------------------------------------------------------
   showScreen = function (name) {
-    builderScreen.classList.toggle("hidden", name !== "builder");
-    v8ModeScreen?.classList.toggle("hidden", name !== "mode");
-    selectionScreen.classList.toggle("hidden", name !== "selection");
-    battleScreen.classList.toggle("hidden", name !== "battle");
+    // v12.0.1: 追加画面を含め、必ず1画面だけを表示する。
+    // 旧実装は builder/mode/selection/battle だけを切り替えていたため、
+    // format-battle-screen や research-screen が残ったまま編成画面と重なることがあった。
+    const screenIds = {
+      builder: "builder-screen", mode: "mode-screen", selection: "selection-screen",
+      battle: "battle-screen", format: "format-battle-screen", research: "research-screen"
+    };
+    document.querySelectorAll("section.screen").forEach(el => el.classList.add("hidden"));
+    const target = document.getElementById(screenIds[name] || name);
+    target?.classList.remove("hidden");
     goBuilderButton.classList.toggle("hidden", name === "builder");
     if (typeof window.scrollTo === "function") window.scrollTo({ top: 0, behavior: "smooth" });
   };

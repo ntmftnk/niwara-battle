@@ -1062,3 +1062,27 @@ body.utility-modal-open{
 .pokedex-filter-two-col{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
 .pokedex-filter-two-col label{min-width:0}
 @media (max-width:720px){.pokedex-filter-two-col{grid-template-columns:1fr}}
+
+/* ============================================================
+   v12.0.1: non-single selection screen / exclusive screen fixes
+   ============================================================ */
+.format-battle-screen.format-selection-mode .view-toolbar,
+.format-battle-screen.format-selection-mode .field-bar,
+.format-battle-screen.format-selection-mode #format-autoplay-controls,
+.format-battle-screen.format-selection-mode .log-area { display:none !important; }
+.format-battle-screen.format-selection-mode .format-battle-board { margin:12px 0 18px; }
+.format-battle-screen.format-selection-mode .command-area { margin-top:0; }
+.format-selection-summary { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin:0 0 12px; }
+.format-selection-own-grid .preview-card { min-height:86px; text-align:left; }
+.format-selection-own-grid .preview-card.selected { outline:3px solid var(--accent); border-color:var(--accent); background:#eef4ff; }
+.format-selection-own-grid .preview-card strong,
+.format-selection-opponents .preview-card strong { display:block; margin-bottom:5px; }
+.format-selection-own-grid .preview-card span,
+.format-selection-opponents .preview-card span { display:block; color:var(--muted); font-size:.84rem; }
+.format-selection-roster-group + .format-selection-roster-group { margin-top:14px; padding-top:14px; border-top:1px solid var(--line); }
+.format-selection-trainer-name { display:block; margin-bottom:8px; }
+.format-selection-actions { margin-top:14px; }
+@media(max-width:700px){
+  .format-selection-summary { align-items:flex-start; flex-direction:column; }
+  .format-selection-own-grid .preview-card { min-height:72px; }
+}
