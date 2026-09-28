@@ -1,6 +1,6 @@
 /* ニワラバトル v12 - single source of truth for version and persistent keys. */
 globalThis.NIWARA_APP = Object.freeze({
-  version: "12.0.1",
+  version: "12.0.2",
   partyLibraryKey: "niwaraBattlePartyLibraryV8",
   teamStorageKey: "niwaraBattleTeamV5"
 });

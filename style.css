@@ -1086,3 +1086,22 @@ body.utility-modal-open{
   .format-selection-summary { align-items:flex-start; flex-direction:column; }
   .format-selection-own-grid .preview-card { min-height:72px; }
 }
+
+/* ============================================================
+   v12.0.2: non-single selection / team preview / bench parity
+   ============================================================ */
+.format-selection-own-title{margin:8px 0 10px;font-size:18px}
+.format-selection-own-grid .preview-card{position:relative;padding-top:34px;cursor:pointer}
+.format-selection-own-grid .preview-card:focus{outline:3px solid rgba(39,110,241,.28);outline-offset:2px}
+.format-selection-order{position:absolute;top:9px;right:10px;padding:3px 8px;border-radius:999px;background:#eef2f4;color:#53636b;font-size:11px;font-weight:800}
+.format-selection-own-grid .preview-card.selected .format-selection-order{background:var(--accent);color:#fff}
+.format-selection-own-grid .preview-name,.format-selection-allies .preview-name,.format-selection-opponents .preview-name{font-weight:800;font-size:16px;margin-bottom:4px}
+.format-selection-own-grid .preview-meta,.format-selection-allies .preview-meta,.format-selection-opponents .preview-meta{font-size:12px;line-height:1.55;color:#526067}
+.format-selection-own-grid .set-stat-line,.format-selection-allies .set-stat-line{font-size:12px;margin-top:6px;line-height:1.55}
+.format-selection-own-grid .set-move-list,.format-selection-allies .set-move-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;margin-top:8px}
+.format-selection-own-grid .set-move-list button,.format-selection-allies .set-move-list button{min-height:32px;padding:5px 6px;border:1px solid #cbd4d9;border-radius:7px;background:#f7f9fa;font-size:11px;cursor:pointer}
+.format-selection-allies{border-color:#b9d1ee;background:#f5f9ff}
+.format-selection-opponents .set-public-note{margin-top:7px;font-size:12px;color:#6d777e}
+.format-bench-trainer-heading{margin-top:8px;padding:6px 8px;border-radius:8px;background:#eef2f4;font-weight:800;font-size:13px}
+.format-bench-trainer-heading:first-child{margin-top:0}
+@media(max-width:560px){.format-selection-own-grid .set-move-list,.format-selection-allies .set-move-list{grid-template-columns:1fr}.format-selection-own-grid .preview-card{padding-top:38px}}
