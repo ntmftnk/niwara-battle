@@ -93,6 +93,8 @@ function showScreen(name) {
   goBuilderButton.classList.toggle("hidden", name === "builder");
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
+const V1201_showScreen = showScreen;
+showScreen = function(name){ document.querySelectorAll("section.screen").forEach(x=>x.classList.add("hidden")); V1201_showScreen(name); };
 
 function optionHtml(value, label, selectedValue, disabled = false) {
   const selected = value === selectedValue;
@@ -215,11 +217,13 @@ function normalizeSet(set) {
   if (!species.abilities.some(a => a.id === set.abilityId)) set.abilityId = species.abilities[0].id;
   if (!ITEM_DEX[set.itemId]) set.itemId = "none";
   if (!Array.isArray(set.moves)) set.moves = species.movePool.slice(0, 4);
-  const validMoves = set.moves.filter(id => species.movePool.includes(id));
-  species.movePool.forEach(id => {
-    if (validMoves.length < 4 && !validMoves.includes(id)) validMoves.push(id);
-  });
-  set.moves = validMoves.slice(0, 4);
+  const validMoves = [];
+  for (const id of set.moves) {
+    if (species.movePool.includes(id) && !validMoves.includes(id) && validMoves.length < 4) validMoves.push(id);
+  }
+  // v12.0.4: 技は1～4個。旧データが空だった場合だけ最低1個を補う。
+  if (!validMoves.length && species.movePool.length) validMoves.push(species.movePool[0]);
+  set.moves = validMoves;
   return set;
 }
 
@@ -233,7 +237,8 @@ function validateSet(set) {
     const point = Number(set.statPoints[stat]);
     if (!Number.isFinite(point) || point < 0 || point > 32) return `${STAT_LABELS[stat]}の能力ポイントが不正です`;
   }
-  if (new Set(set.moves).size !== 4) return "同じ技は2つ選べません";
+  if (!Array.isArray(set.moves) || set.moves.length < 1 || set.moves.length > 4) return "技は1つ以上4つ以下で選んでください";
+  if (new Set(set.moves).size !== set.moves.length) return "同じ技は2つ選べません";
   if (set.moves.some(id => !species.movePool.includes(id))) return "覚えられない技があります";
   return null;
 }
@@ -351,11 +356,13 @@ function renderBuilder() {
       .map(name => optionHtml(name, getNatureOptionLabel(name), set.nature))
       .join("");
 
-    const moveSelects = set.moves.map((moveId, moveIndex) => {
+    const moveSelects = Array.from({ length: 4 }, (_, moveIndex) => {
+      const moveId = set.moves[moveIndex] || "";
+      const emptyOption = moveIndex === 0 ? "" : optionHtml("", "選択しない", moveId);
       const options = species.movePool
         .map(id => optionHtml(id, `${MOVE_DEX[id].name}［${MOVE_DEX[id].type}/${getCategoryText(MOVE_DEX[id].category)}］`, moveId))
         .join("");
-      return `<div class="form-field"><label>技${moveIndex + 1}</label><select data-role="move" data-move-index="${moveIndex}">${options}</select></div>`;
+      return `<div class="form-field"><label>技${moveIndex + 1}${moveIndex === 0 ? "（必須）" : ""}</label><select data-role="move" data-move-index="${moveIndex}">${emptyOption}${options}</select></div>`;
     }).join("");
 
     const statPointInputs = Object.keys(STAT_LABELS).map(stat => `
@@ -403,7 +410,7 @@ function renderBuilder() {
           <div class="sp-grid">${statPointInputs}</div>
         </div>
         <div class="full-width">
-          <label style="font-size:12px;font-weight:800;color:#526067;">技4つ</label>
+          <label style="font-size:12px;font-weight:800;color:#526067;">技（1〜4つ）</label>
           <div class="move-select-grid">${moveSelects}</div>
         </div>
       </div>
@@ -443,7 +450,11 @@ function renderBuilder() {
 
     card.querySelectorAll('[data-role="move"]').forEach(select => {
       select.addEventListener("change", event => {
-        set.moves[Number(event.target.dataset.moveIndex)] = event.target.value;
+        const idx = Number(event.target.dataset.moveIndex);
+        const next = [...set.moves];
+        next[idx] = event.target.value;
+        set.moves = next.filter(Boolean).slice(0, 4);
+        if (!set.moves.length && species.movePool.length) set.moves = [species.movePool[0]];
         renderBuilder();
       });
     });
@@ -1809,7 +1820,7 @@ function chooseEnemyAction() {
   const bench = enemyTeam.map((pokemon, index) => ({ pokemon, index }))
     .filter(entry => entry.index !== enemyActiveIndex && entry.pokemon.hp > 0);
 
-  if (!trapped && bench.length > 0) {
+  if (!trapped && !v1204IsForcedMoveLocked(enemy) && bench.length > 0) {
     let bestSwitch = null;
     let bestSwitchScore = currentScore;
     bench.forEach(entry => {
@@ -1923,7 +1934,8 @@ function processResidualForPokemon(pokemon) {
   }
 
   if (pokemon.hp > 0 && pokemon.ability.id === "speed-boost" && pokemon.stages.speed < 6) {
-    addLog(changeStage(pokemon, "speed", 1, pokemon));
+    addLog(`${pokemon.name}の ${pokemon.ability.name}！`, "log-system", pokemon);
+    addLog(changeStage(pokemon, "speed", 1, pokemon), "log-status", pokemon);
   }
 
   trySitrusBerry(pokemon);
@@ -2037,17 +2049,23 @@ function renderMoves() {
   });
 }
 
+function v1204IsForcedMoveLocked(pokemon) {
+  return Boolean(pokemon?.chargingMoveId || pokemon?.rampageMoveId);
+}
+
 function renderSwitchButtons() {
   switchContainer.innerHTML = "";
   const active = getPlayerPokemon();
   const trapped = !awaitingPlayerSwitch && isTrappedByOpponent(active, getEnemyPokemon());
   const recharging = !awaitingPlayerSwitch && Boolean(active?.rechargeNext);
+  const forcedMoveLock = !awaitingPlayerSwitch && v1204IsForcedMoveLocked(active);
   playerTeam.forEach((pokemon, index) => {
     const button = document.createElement("button");
     button.className = "switch-button";
     button.textContent = `${pokemon.name}#${pokemon.rosterIndex + 1}　${pokemon.hp}/${pokemon.maxHP}`;
-    button.disabled = battleOver || pokemon.hp <= 0 || index === playerActiveIndex || trapped || recharging;
-    if (recharging && index !== playerActiveIndex) button.title = "反動で動けないターンは交代できません";
+    button.disabled = battleOver || pokemon.hp <= 0 || index === playerActiveIndex || trapped || recharging || forcedMoveLock;
+    if (forcedMoveLock && index !== playerActiveIndex) button.title = active?.chargingMoveId ? "溜め技の実行中は交代できません" : "あばれ状態の間は交代できません";
+    else if (recharging && index !== playerActiveIndex) button.title = "反動で動けないターンは交代できません";
     else if (trapped && index !== playerActiveIndex) button.title = "かげふみで交代できません";
     button.addEventListener("click", () => playerSwitch(index));
     switchContainer.appendChild(button);
@@ -2084,6 +2102,11 @@ function playerSwitch(newIndex) {
     addLog(`${getPlayerPokemon().name}は 反動で交代できない！`, "log-system");
     return;
   }
+  if (!awaitingPlayerSwitch && v1204IsForcedMoveLocked(getPlayerPokemon())) {
+    addLog(`${getPlayerPokemon().name}は ${getPlayerPokemon().chargingMoveId ? "技をためているため" : "あばれ状態のため"}交代できない！`, "log-system");
+    return;
+  }
+
 
   if (!awaitingPlayerSwitch && isTrappedByOpponent(getPlayerPokemon(), getEnemyPokemon())) {
     addLog(`${getPlayerPokemon().name}は かげふみで交代できない！`, "log-system");
@@ -2349,11 +2372,7 @@ function v6EnsureFieldState() {
 }
 
 function v6GetSideState(side) {
-  const state = v6EnsureFieldState().sides[side];
-  // v12.0.1: 旧セーブ/旧バトル状態でも追加設置物を安全に補完する。
-  if (state.stickyWeb === undefined) state.stickyWeb = false;
-  if (state.toxicSpikes === undefined) state.toxicSpikes = 0;
-  return state;
+  return v6EnsureFieldState().sides[side];
 }
 
 function v6ItemIsActive(pokemon) {
@@ -3019,16 +3038,12 @@ function v6ApplyHazard(side, hazard, logs) {
     if (state.spikes >= 3) logs.push("まきびしは これ以上重ねられない！");
     else { state.spikes++; logs.push(`${side === "player" ? "自分" : "相手"}の場に まきびしをまいた！（${state.spikes}段）`); }
   }
-  if (hazard === "stickyWeb") {
-    if (state.stickyWeb) logs.push("ねばねばネットは すでに張られている！");
-    else { state.stickyWeb = true; logs.push(`${side === "player" ? "自分" : "相手"}の場に ねばねばネットを張った！`); }
-  }
 }
 
 function v6ClearHazardsAndScreens() {
   ["player", "enemy"].forEach(side => {
     const s = v6GetSideState(side);
-    s.stealthRock = false; s.spikes = 0; s.stickyWeb = false; s.reflect = 0; s.lightScreen = 0;
+    s.stealthRock = false; s.spikes = 0; s.reflect = 0; s.lightScreen = 0;
   });
   v6EnsureFieldState().terrain = { type: null, turns: 0 };
 }
@@ -3588,7 +3603,7 @@ useMove = function(attacker, defender, originalMove) {
   if (move.knockOff && v6ItemIsActive(defender) && defender.item.id !== "none" && defender.hp > 0) { defender.itemConsumed = true; logs.push(`${defender.name}の ${defender.item.name}を はたき落とした！`); }
   if (move.bugBite && v6ItemIsActive(defender) && /berry|オボン|ラム|カゴ/.test(defender.item.id + defender.item.name)) { defender.itemConsumed = true; logs.push(`${attacker.name}は ${defender.name}の ${defender.item.name}を 食べた！`); }
   if (move.rapidSpin) {
-    const s = v6GetSideState(attacker.side); s.stealthRock = false; s.spikes = 0; s.toxicSpikes = 0; s.stickyWeb = false; attacker.boundTurns = 0; attacker.seeded = false; logs.push(`${attacker.name}側の 設置技・拘束が取り除かれた！`);
+    const s = v6GetSideState(attacker.side); s.stealthRock = false; s.spikes = 0; attacker.boundTurns = 0; attacker.seeded = false; logs.push(`${attacker.name}側の 設置技・拘束が取り除かれた！`);
   }
   if (move.forceSwitchOnHit && defender.hp > 0) v6ForceSwitch(defender.side, logs);
   if (move.pivot && attacker.hp > 0) autoPivot(attacker.side);
@@ -4034,7 +4049,11 @@ useMove = function(attacker, defender, originalMove) {
     if (move.pp <= 0) return [`${move.name}は PPが ない！`];
     const original = attacker.moves.find(m => m.id === originalMove.id);
     if (original) original.pp = Math.max(0, original.pp - 1);
-    const logs = [`${attacker.name}の ${move.name}！`];
+    const logs = [];
+    const actionCheck = canPokemonAct(attacker);
+    if (actionCheck.text) logs.push(actionCheck.text);
+    if (!actionCheck.canAct) { attacker.lastMoveFailed = true; return logs; }
+    logs.push(`${attacker.name}の ${move.name}！`);
     const side = attacker.side;
     const team = getTeamBySide(side);
     const current = getActiveIndexBySide(side);
@@ -4568,6 +4587,7 @@ renderDataCounts = function() {
 function v7EnsureSideState(side) {
   const state = v6GetSideState(side);
   if (state.toxicSpikes === undefined) state.toxicSpikes = 0;
+  if (state.stickyWeb === undefined) state.stickyWeb = false;
   if (state.lunarDance === undefined) state.lunarDance = false;
   return state;
 }
@@ -4584,13 +4604,19 @@ v6ApplyHazard = function(side, hazard, logs) {
     }
     return;
   }
+  if (hazard === "stickyWeb") {
+    const state = v7EnsureSideState(side);
+    if (state.stickyWeb) logs.push("しかし すでにねばねばネットがある！");
+    else { state.stickyWeb = true; logs.push(`${side === "player" ? "自分" : "相手"}の場に ねばねばネットを はりめぐらせた！`); }
+    return;
+  }
   return V7_prevApplyHazard(side, hazard, logs);
 };
 
 const V7_prevClearHazardsAndScreens = v6ClearHazardsAndScreens;
 v6ClearHazardsAndScreens = function() {
   V7_prevClearHazardsAndScreens();
-  ["player", "enemy"].forEach(side => { v7EnsureSideState(side).toxicSpikes = 0; });
+  ["player", "enemy"].forEach(side => { const st=v7EnsureSideState(side); st.toxicSpikes = 0; st.stickyWeb = false; });
 };
 
 // ------------------------------------------------------------
@@ -4904,7 +4930,7 @@ useMove = function(attacker, defender, originalMove) {
   if (move.clearFieldStructures && defender.hp < beforeDefHP && v7MoveSucceeded(logs)) {
     ["player", "enemy"].forEach(side => {
       const s = v7EnsureSideState(side);
-      s.stealthRock = false; s.spikes = 0; s.toxicSpikes = 0; s.stickyWeb = false;
+      s.stealthRock = false; s.spikes = 0; s.toxicSpikes = 0;
       s.reflect = 0; s.lightScreen = 0; s.mist = 0; s.safeguard = 0;
     });
     const f = v6EnsureFieldState();
@@ -4997,8 +5023,15 @@ processResidualForPokemon = function(pokemon) {
 // どくびしの状態異常付与はこの後のEntry処理で別に行う。
 const V7_prevEntryHazards = v6EntryHazards;
 v6EntryHazards = function(pokemon) {
-  if (pokemon?.ability?.id === "magic-guard") return;
-  return V7_prevEntryHazards(pokemon);
+  if (!pokemon?.side || pokemon.hp <= 0) return;
+  const boots = v6ItemIsActive(pokemon) && pokemon.item.id === "heavy-duty-boots";
+  // マジックガードは設置ダメージだけを防ぎ、ねばねばネットの能力低下は防がない。
+  if (pokemon.ability?.id !== "magic-guard") V7_prevEntryHazards(pokemon);
+  const sideState = v7EnsureSideState(pokemon.side);
+  if (pokemon.hp > 0 && sideState.stickyWeb && !boots && v6IsGrounded(pokemon)) {
+    addLog(`${pokemon.name}は ねばねばネットに かかった！`, "log-status", pokemon);
+    addLog(changeStage(pokemon, "speed", -1, {side: pokemon.side === "player" ? "enemy" : "player"}), "log-status", pokemon);
+  }
 };
 
 // ------------------------------------------------------------
@@ -5012,19 +5045,13 @@ activateEntryAbility = function(pokemon) {
   if (!pokemon || pokemon.hp <= 0) return;
 
   const sideState = v7EnsureSideState(pokemon.side);
-
-  // v12.0.1: ねばねばネット。接地している交代先のSを1段階下げる。
-  // あつぞこブーツは設置技を無視するが、マジックガードは能力低下までは防がない。
-  if (sideState.stickyWeb && v6IsGrounded(pokemon) && !(v6ItemIsActive(pokemon) && pokemon.item.id === "heavy-duty-boots")) {
-    addLog(changeStage(pokemon, "speed", -1, { side: pokemon.side === "player" ? "enemy" : "player" }), "log-status", pokemon);
-  }
-
   if (sideState.toxicSpikes > 0 && v6IsGrounded(pokemon)) {
-    // あつぞこブーツでも、接地したどくタイプはどくびし自体を吸収する。
+    const boots = v6ItemIsActive(pokemon) && pokemon.item.id === "heavy-duty-boots";
     if (pokemon.types.includes("どく")) {
+      // どくタイプはあつぞこブーツ所持中でも、接地すればどくびしそのものを吸収する。
       sideState.toxicSpikes = 0;
       addLog(`${pokemon.name}は どくびしを 吸収した！`, "log-system");
-    } else if (!(v6ItemIsActive(pokemon) && pokemon.item.id === "heavy-duty-boots") && !pokemon.types.includes("はがね") && !pokemon.status) {
+    } else if (!boots && !pokemon.types.includes("はがね") && !pokemon.status) {
       addLog(inflictStatus(pokemon, sideState.toxicSpikes >= 2 ? "toxic" : "poison"), "log-status");
     }
   }
@@ -5052,15 +5079,25 @@ endTurn = function() {
   const active = [getPlayerPokemon(), getEnemyPokemon()].filter(p => p && p.hp > 0);
   const punkUsers = active.filter(p => p.ability.id === "halloween-punk" && p.v7FormKey !== "trick");
   const stats = ["attack", "defense", "specialAttack", "specialDefense", "speed"];
+  const punkDirections = new Map(active.map(p => [p, new Map()]));
+  const pick = arr => arr[Math.floor(Math.random() * arr.length)];
 
   punkUsers.forEach(holder => {
-    addLog(`${holder.name}の ハロウィンパンク！`, "log-system");
+    addLog(`${holder.name}の ${holder.ability.name}！`, "log-system", holder);
     active.forEach(target => {
-      const up = stats[Math.floor(Math.random() * stats.length)];
-      let down = stats[Math.floor(Math.random() * stats.length)];
-      while (down === up) down = stats[Math.floor(Math.random() * stats.length)];
-      addLog(changeStage(target, up, 1, holder), "log-status");
-      addLog(changeStage(target, down, -1, holder), "log-status");
+      const dir = punkDirections.get(target);
+      let upCandidates = stats.filter(stat => dir.get(stat) !== -1);
+      let up = pick(upCandidates.length ? upCandidates : stats);
+      let downCandidates = stats.filter(stat => stat !== up && dir.get(stat) !== 1);
+      if (!downCandidates.length) {
+        upCandidates = stats.filter(stat => !dir.has(stat));
+        if (upCandidates.length) up = pick(upCandidates);
+        downCandidates = stats.filter(stat => stat !== up && dir.get(stat) !== 1);
+      }
+      const down = pick(downCandidates.length ? downCandidates : stats.filter(stat => stat !== up));
+      dir.set(up, 1); dir.set(down, -1);
+      addLog(changeStage(target, up, 1, holder), "log-status", target);
+      addLog(changeStage(target, down, -1, holder), "log-status", target);
     });
   });
 
@@ -5354,16 +5391,10 @@ scoreMove = function(attacker, defender, move) {
   // 画面切替：modeを追加
   // ------------------------------------------------------------
   showScreen = function (name) {
-    // v12.0.1: 追加画面を含め、必ず1画面だけを表示する。
-    // 旧実装は builder/mode/selection/battle だけを切り替えていたため、
-    // format-battle-screen や research-screen が残ったまま編成画面と重なることがあった。
-    const screenIds = {
-      builder: "builder-screen", mode: "mode-screen", selection: "selection-screen",
-      battle: "battle-screen", format: "format-battle-screen", research: "research-screen"
-    };
-    document.querySelectorAll("section.screen").forEach(el => el.classList.add("hidden"));
-    const target = document.getElementById(screenIds[name] || name);
-    target?.classList.remove("hidden");
+    builderScreen.classList.toggle("hidden", name !== "builder");
+    v8ModeScreen?.classList.toggle("hidden", name !== "mode");
+    selectionScreen.classList.toggle("hidden", name !== "selection");
+    battleScreen.classList.toggle("hidden", name !== "battle");
     goBuilderButton.classList.toggle("hidden", name === "builder");
     if (typeof window.scrollTo === "function") window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -5499,9 +5530,9 @@ scoreMove = function(attacker, defender, move) {
       const movesLine = get("技", "moves", "Moves");
       if (movesLine) moveValues = movesLine.split(/\s*(?:\/|／|\||,|、)\s*/).filter(Boolean);
       else moveValues = [0,1,2,3].map(i => numberedMoves[i] || "").filter(Boolean);
-      if (moveValues.length !== 4) throw new Error(`技は4つ指定してください（現在${moveValues.length}個）`);
+      if (moveValues.length < 1 || moveValues.length > 4) throw new Error(`技は1つ以上4つ以下で指定してください（現在${moveValues.length}個）`);
       const moves = moveValues.map(v => v8FormatMove(species, v));
-      if (new Set(moves).size !== 4) throw new Error("同じ技は2つ指定できません");
+      if (new Set(moves).size !== moves.length) throw new Error("同じ技は2つ指定できません");
 
       const set = { speciesId:species.id, abilityId:ability.id, itemId:item.id, nature, statPoints, moves };
       const setError = validateSet(set);
@@ -6716,6 +6747,9 @@ scoreMove = function(attacker, defender, move) {
   const V8_addLog = addLog;
   addLog = function(text,className="",v915Target=null) {
     // seen はログ文字列の名前から推測しない。実際に場へ出た個体だけを公開する。
+    const raw=String(text),effectTarget=v915Target||v915ResidualPokemon||null;
+    if(effectTarget?.ability?.name && raw.includes(effectTarget.ability.name)) v8MarkAbility(effectTarget);
+    if(effectTarget?.item?.name && effectTarget.item.id!=="none" && raw.includes(effectTarget.item.name)) v8MarkItem(effectTarget);
     v8MarkUniqueEffectOwnerFromLog(text,"ability");
     v8MarkUniqueEffectOwnerFromLog(text,"item");
     const result=V8_addLog(text,className);
@@ -6727,12 +6761,19 @@ scoreMove = function(attacker, defender, move) {
   const V8_ANNOUNCED_ENTRY_ABILITIES = new Set(["fairy-aura"]);
   const V8_activateEntryAbility = activateEntryAbility;
   activateEntryAbility = function(p) {
-    const hpBefore=Number(p?.hp??0);
+    const hpBefore=Number(p?.hp??0),abilityId=p?.ability?.id||null,formBefore=p?.v7FormKey??null,typesBefore=(p?.types||[]).join('/');
+    const weatherBefore=weather?.type||null,trickBefore=fieldState?.trickRoom||0,tailwindBefore=fieldState?.tailwind?.[getPokemonSide(p)]||0;
+    const logStart=battleLog.length;
     v8MarkSeen(p);
     if(p?.ability && V8_ANNOUNCED_ENTRY_ABILITIES.has(p.ability.id)) {
-      addLog(`${p.name}の ${p.ability.name}が発動した！`, "log-system");
+      addLog(`${p.name}の ${p.ability.name}が発動した！`, "log-system", p);
     }
     const result=V8_activateEntryAbility(p);
+    const entryTriggered=abilityId==='drizzle'||abilityId==='sand-stream'||abilityId==='trick-builder'||abilityId==='fairy-aura'||
+      (abilityId==='windmill'&&tailwindBefore>0)||(abilityId==='clean-land'&&trickBefore>0)||
+      (abilityId==='forecast'&&typesBefore!==(p?.types||[]).join('/'))||
+      (['schooling','halloween-punk'].includes(abilityId)&&formBefore!==(p?.v7FormKey??null));
+    if(entryTriggered||(p?.ability?.name&&battleLog.slice(logStart).some(x=>String(x?.text||"").includes(p.ability.name)))) v8MarkAbility(p);
     if(hpBefore>0 && p?.hp<=0)v1014MarkFaint(p,"entry");
     return result;
   };
@@ -7286,6 +7327,7 @@ scoreMove = function(attacker, defender, move) {
   function v8SelectSwitch(side,index){
     if(side!==v8ActionPhase||battleOver||awaitingPlayerSwitch)return; const p=v8GetTeam(side)[index]; if(!p||p.hp<=0||index===v8GetIndex(side))return;
     if(v8Active(side)?.rechargeNext)return;
+    if(v1204IsForcedMoveLocked(v8Active(side)))return;
     if(isTrappedByOpponent(v8Active(side),v8Active(v8Other(side))))return; v8LockAction(side,{type:"switch",index});
   }
   let v8PivotRequestedSide=null;
@@ -7535,7 +7577,8 @@ scoreMove = function(attacker, defender, move) {
     const activePokemon=v8Active(side);
     const trapped=!replacement&&!pivot&&isTrappedByOpponent(activePokemon,v8Active(v8Other(side)));
     const recharging=!replacement&&!pivot&&Boolean(activePokemon?.rechargeNext);
-    team.forEach((p,i)=>{const b=document.createElement("button");b.className="switch-button";b.textContent=`${p.name}　${p.hp}/${p.maxHP}`;b.disabled=p.hp<=0||i===active||(trapped&&!pivot)||recharging||battleOver;if(recharging&&i!==active)b.title="反動で動けないターンは交代できません";b.addEventListener("click",()=>{if(replacement)v8ChooseReplacement(side,i);else if(pivot)v8SelectPivot(i);else if(v8BattleMode==="pvp")v8SelectSwitch(side,i);else playerSwitch(i);});switchContainer.appendChild(b);});
+    const forcedMoveLock=!replacement&&!pivot&&v1204IsForcedMoveLocked(activePokemon);
+    team.forEach((p,i)=>{const b=document.createElement("button");b.className="switch-button";b.textContent=`${p.name}　${p.hp}/${p.maxHP}`;b.disabled=p.hp<=0||i===active||(trapped&&!pivot)||recharging||forcedMoveLock||battleOver;if(forcedMoveLock&&i!==active)b.title=activePokemon?.chargingMoveId?"溜め技の実行中は交代できません":"あばれ状態の間は交代できません";else if(recharging&&i!==active)b.title="反動で動けないターンは交代できません";b.addEventListener("click",()=>{if(replacement)v8ChooseReplacement(side,i);else if(pivot)v8SelectPivot(i);else if(v8BattleMode==="pvp")v8SelectSwitch(side,i);else playerSwitch(i);});switchContainer.appendChild(b);});
   }
 
   renderAll=function(){
@@ -7796,7 +7839,7 @@ scoreMove = function(attacker, defender, move) {
     const maxs={hp:dexNum("pokedex-max-hp",Infinity),attack:dexNum("pokedex-max-atk",Infinity),defense:dexNum("pokedex-max-def",Infinity),specialAttack:dexNum("pokedex-max-spa",Infinity),specialDefense:dexNum("pokedex-max-spd",Infinity),speed:dexNum("pokedex-max-spe",Infinity)};
     const minBst=dexNum("pokedex-min-bst"),maxBst=dexNum("pokedex-max-bst",Infinity);
     let rows=speciesSorted().filter(s=>{
-      const text=[s.name,s.id,s.classification||"",...s.types,...s.abilities.map(a=>`${a.name} ${a.description||""}`),...s.movePool.map(id=>MOVE_DEX[id]?.name||"")].join(" ").toLowerCase();
+      const text=[s.name,s.id,s.classification||"",...s.types,...Object.values(s.forms||{}).map(f=>f.name||""),...s.abilities.map(a=>`${a.name} ${a.description||""}`),...s.movePool.map(id=>MOVE_DEX[id]?.name||"")].join(" ").toLowerCase();
       if(q&&!text.includes(q)&&!String(s.dexNo??"").includes(q))return false;
       if(type&&!s.types.includes(type))return false;if(type2&&!s.types.includes(type2))return false;
       if(ability&&!s.abilities.some(a=>a.id===ability))return false;if(move&&!s.movePool.includes(move))return false;
@@ -7808,19 +7851,21 @@ scoreMove = function(attacker, defender, move) {
   }
   function renderDexList(){
     if(!pokedexList)return;const rows=dexFilteredRows();pokedexList.innerHTML="";
-    rows.forEach(s=>{const b=document.createElement("button");b.type="button";b.className=`ghost-button pokedex-entry${s.id===selectedSpeciesId?" active":""}`;b.textContent=`No.${String(s.dexNo??"-").padStart(3,"0")} ${s.name}`;b.addEventListener("click",()=>{selectedSpeciesId=s.id;renderDexList();renderDexDetail();window.dispatchEvent(new CustomEvent("niwara-dex-selection",{detail:{speciesId:s.id}}));});pokedexList.appendChild(b);});
+    rows.forEach(s=>{const b=document.createElement("button");b.type="button";b.className=`ghost-button pokedex-entry${s.id===selectedSpeciesId?" active":""}`;b.textContent=`No.${String(s.dexNo??"-").padStart(3,"0")} ${s.name}${Object.keys(s.forms||{}).length?`（${Object.keys(s.forms).length}フォルム）`:""}`;b.addEventListener("click",()=>{selectedSpeciesId=s.id;renderDexList();renderDexDetail();window.dispatchEvent(new CustomEvent("niwara-dex-selection",{detail:{speciesId:s.id}}));});pokedexList.appendChild(b);});
     if(!rows.length)pokedexList.innerHTML='<div class="notice">該当するポケモンがいません。</div>';
   }
   function renderDexDetail(){
     if(!pokedexDetail)return;const s=SPECIES_DEX[selectedSpeciesId];if(!s){pokedexDetail.textContent="ポケモンを選択してください。";return;}
-    const total=Object.values(s.baseStats).reduce((a,b)=>a+b,0);
-    const stats=[...statPairs.map(([k,l])=>`<div class="dex-stat"><span>${l}</span><strong>${s.baseStats[k]}</strong></div>`),`<div class="dex-stat"><span>合計</span><strong>${total}</strong></div>`].join("");
+    const statGrid=baseStats=>{const total=Object.values(baseStats).reduce((a,b)=>a+b,0);return [...statPairs.map(([k,l])=>`<div class="dex-stat"><span>${l}</span><strong>${baseStats[k]}</strong></div>`),`<div class="dex-stat"><span>合計</span><strong>${total}</strong></div>`].join("");};
     const abilities=s.abilities.map(a=>`<div class="dex-ability"><strong>${esc(a.name)}</strong><div>${esc(a.description||"説明なし")}</div></div>`).join("");
     const moves=s.movePool.map(id=>MOVE_DEX[id]).filter(Boolean).slice().sort((a,b)=>a.type.localeCompare(b.type,"ja")||a.name.localeCompare(b.name,"ja"));
     const moveRows=moves.map(m=>`<tr><td>${esc(m.name)}</td><td>${esc(m.type)}</td><td>${catName(m.category)}</td><td>${m.power??"-"}</td><td>${m.accuracy??"-"}</td><td>${m.maxPP??"-"}</td><td>${esc(m.description||"")}</td></tr>`).join("");
+    const formEntries=Object.entries(s.forms||{});
+    const formsHtml=formEntries.length?`<section class="dex-forms"><h3>フォルム <span class="view-note">${formEntries.length}種</span></h3><div class="dex-form-grid">${formEntries.map(([key,f])=>`<article class="dex-form-card" data-form-key="${esc(key)}"><div class="dex-form-head"><strong>${esc(f.name||key)}</strong><span>${f.height!=null?`高さ ${f.height}m`:""}${f.weight!=null?`　重さ ${f.weight}kg`:""}</span></div><div class="dex-stat-grid">${statGrid(f.baseStats||s.baseStats)}</div></article>`).join("")}</div></section>`:"";
     pokedexDetail.innerHTML=`
       <div class="dex-head"><div><div class="dex-number">No.${String(s.dexNo??"-").padStart(3,"0")}</div><h2>${esc(s.name)}</h2><div>${s.types.map(esc).join(" / ")}${s.classification?`　${esc(s.classification)}`:""}</div></div><div>${s.height!=null?`高さ ${s.height}m`:""}${s.weight!=null?`　重さ ${s.weight}kg`:""}</div></div>
-      <h3>種族値</h3><div class="dex-stat-grid">${stats}</div>
+      ${formsHtml}
+      <h3>${formEntries.length?"基準フォルムの種族値":"種族値"}</h3><div class="dex-stat-grid">${statGrid(s.baseStats)}</div>
       <h3>特性</h3><div class="dex-ability-list">${abilities}</div>
       <h3>覚える技 <span class="view-note">${moves.length}種</span></h3>
       <div class="dex-move-table-wrap"><table class="dex-move-table"><thead><tr><th>技</th><th>タイプ</th><th>分類</th><th>威力</th><th>命中</th><th>PP</th><th>効果</th></tr></thead><tbody>${moveRows}</tbody></table></div>

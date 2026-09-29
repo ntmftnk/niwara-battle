@@ -1063,9 +1063,7 @@ body.utility-modal-open{
 .pokedex-filter-two-col label{min-width:0}
 @media (max-width:720px){.pokedex-filter-two-col{grid-template-columns:1fr}}
 
-/* ============================================================
-   v12.0.1: non-single selection screen / exclusive screen fixes
-   ============================================================ */
+/* v12.0.1 non-single selection / exclusive screen fixes */
 .format-battle-screen.format-selection-mode .view-toolbar,
 .format-battle-screen.format-selection-mode .field-bar,
 .format-battle-screen.format-selection-mode #format-autoplay-controls,
@@ -1087,9 +1085,10 @@ body.utility-modal-open{
   .format-selection-own-grid .preview-card { min-height:72px; }
 }
 
-/* ============================================================
-   v12.0.2: non-single selection / team preview / bench parity
-   ============================================================ */
+
+/* v12.0.4 Pokédex forms */
+.dex-form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin:10px 0 18px}.dex-form-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px}.dex-form-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-bottom:10px}.dex-form-head strong{font-size:16px}.dex-form-head span{font-size:12px;color:var(--muted)}
+\n\n/* v12.0.2 non-single detail parity */
 .format-selection-own-title{margin:8px 0 10px;font-size:18px}
 .format-selection-own-grid .preview-card{position:relative;padding-top:34px;cursor:pointer}
 .format-selection-own-grid .preview-card:focus{outline:3px solid rgba(39,110,241,.28);outline-offset:2px}

@@ -1,10 +1,10 @@
 /* ニワラバトル v12 PWA Service Worker
  * バージョン単位のアプリシェルを原子的に切り替える。
- * updater-generation: 10  // top-level bytesも更新し、旧PWAからの更新検出を保証する
+ * updater-generation: 12  // top-level bytesも更新し、旧PWAからの更新検出を保証する
  */
 importScripts("./app-config.js");
 const APP_VERSION = self.NIWARA_APP.version;
-const SW_UPDATE_GENERATION = 10;
+const SW_UPDATE_GENERATION = 12;
 const CACHE_PREFIX = "niwara-battle-shell-";
 const CACHE_NAME = `${CACHE_PREFIX}${APP_VERSION}`;
 const APP_SHELL = [

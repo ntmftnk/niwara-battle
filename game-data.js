@@ -808,7 +808,10 @@ Object.assign(MOVE_DEX, {
     "power": 90,
     "accuracy": 100,
     "priority": 0,
-    "maxPP": 15
+    "maxPP": 15,
+    "pollenPuff": true,
+    "allyHealRatio": 0.5,
+    "description": "相手には攻撃。味方を対象にした場合は攻撃せず、味方の最大HPの1/2を回復する。"
   },
   "x-scissor": {
     "id": "x-scissor",

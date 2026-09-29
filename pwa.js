@@ -40,7 +40,6 @@
     try {
       if (formatVisible) {
         const fs = window.NIWARA_FORMATS?.state;
-        // 選出中も対戦セッションの一部として扱い、更新適用で状態を失わないようにする。
         return fs ? !fs.over : true;
       }
       const state = (window.NIWARA?.battle || window.__PBV8)?._debugState?.();
