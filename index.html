@@ -188,6 +188,48 @@
           <label><span>乱数シード</span><input id="research-seed" type="text" value="niwara-v12" maxlength="40"></label>
           <label><span>最大ターン</span><input id="research-turn-limit" type="number" min="20" max="500" value="200" inputmode="numeric"></label>
         </div>
+
+        <details id="research-rules-panel" class="research-rules-panel">
+          <summary>使用可能条件 <span id="research-rules-summary" class="view-note">全要素を使用可能</span></summary>
+          <p class="research-note">研究で構築に使用してよいポケモン・技・特性・持ち物を指定します。条件は研究データに保存され、途中再開でも維持されます。「持ち物なし」も1つの選択肢として指定できます。</p>
+          <div class="research-rules-master">
+            <input id="research-rules-bulk-search" type="search" placeholder="全カテゴリ一括検索（名前・ID・タイプ・説明）" aria-label="使用可能条件の一括検索">
+            <button id="research-rules-allow-matches" class="ghost-button compact-button" type="button">一致項目を一括許可</button>
+            <button id="research-rules-deny-matches" class="ghost-button compact-button" type="button">一致項目を一括除外</button>
+            <button id="research-rules-add-related" class="ghost-button compact-button" type="button">選択ポケモンの技・特性を追加</button>
+            <button id="research-rules-only-related" class="ghost-button compact-button" type="button">選択ポケモンの技・特性だけに絞る</button>
+            <button id="research-rules-allow-all" class="ghost-button compact-button" type="button">全要素を許可</button>
+            <button id="research-rules-deny-all" class="ghost-button compact-button danger-text" type="button">全要素を解除</button>
+          </div>
+          <div id="research-rules-validation" class="research-rules-validation" aria-live="polite"></div>
+          <div class="research-rules-grid">
+            <section class="research-rule-group" data-research-rule-kind="species">
+              <div class="research-rule-heading"><h4>ポケモン</h4><strong id="research-rule-species-count"></strong></div>
+              <input class="research-rule-search" data-research-rule-search="species" type="search" placeholder="名前・図鑑番号・タイプで絞り込み">
+              <div class="research-rule-actions"><button type="button" class="ghost-button compact-button" data-rule-action="all" data-rule-kind="species">全て</button><button type="button" class="ghost-button compact-button" data-rule-action="none" data-rule-kind="species">なし</button><button type="button" class="ghost-button compact-button" data-rule-action="visible-on" data-rule-kind="species">表示中を許可</button><button type="button" class="ghost-button compact-button" data-rule-action="visible-off" data-rule-kind="species">表示中を除外</button><button type="button" class="ghost-button compact-button" data-rule-action="invert" data-rule-kind="species">反転</button></div>
+              <div id="research-rule-species-list" class="research-rule-list"></div>
+            </section>
+            <section class="research-rule-group" data-research-rule-kind="moves">
+              <div class="research-rule-heading"><h4>技</h4><strong id="research-rule-moves-count"></strong></div>
+              <input class="research-rule-search" data-research-rule-search="moves" type="search" placeholder="技名・タイプ・分類で絞り込み">
+              <div class="research-rule-actions"><button type="button" class="ghost-button compact-button" data-rule-action="all" data-rule-kind="moves">全て</button><button type="button" class="ghost-button compact-button" data-rule-action="none" data-rule-kind="moves">なし</button><button type="button" class="ghost-button compact-button" data-rule-action="visible-on" data-rule-kind="moves">表示中を許可</button><button type="button" class="ghost-button compact-button" data-rule-action="visible-off" data-rule-kind="moves">表示中を除外</button><button type="button" class="ghost-button compact-button" data-rule-action="invert" data-rule-kind="moves">反転</button></div>
+              <div id="research-rule-moves-list" class="research-rule-list research-rule-list-dense"></div>
+            </section>
+            <section class="research-rule-group" data-research-rule-kind="abilities">
+              <div class="research-rule-heading"><h4>特性</h4><strong id="research-rule-abilities-count"></strong></div>
+              <input class="research-rule-search" data-research-rule-search="abilities" type="search" placeholder="特性名・説明で絞り込み">
+              <div class="research-rule-actions"><button type="button" class="ghost-button compact-button" data-rule-action="all" data-rule-kind="abilities">全て</button><button type="button" class="ghost-button compact-button" data-rule-action="none" data-rule-kind="abilities">なし</button><button type="button" class="ghost-button compact-button" data-rule-action="visible-on" data-rule-kind="abilities">表示中を許可</button><button type="button" class="ghost-button compact-button" data-rule-action="visible-off" data-rule-kind="abilities">表示中を除外</button><button type="button" class="ghost-button compact-button" data-rule-action="invert" data-rule-kind="abilities">反転</button></div>
+              <div id="research-rule-abilities-list" class="research-rule-list"></div>
+            </section>
+            <section class="research-rule-group" data-research-rule-kind="items">
+              <div class="research-rule-heading"><h4>持ち物</h4><strong id="research-rule-items-count"></strong></div>
+              <input class="research-rule-search" data-research-rule-search="items" type="search" placeholder="持ち物名・説明で絞り込み">
+              <div class="research-rule-actions"><button type="button" class="ghost-button compact-button" data-rule-action="all" data-rule-kind="items">全て</button><button type="button" class="ghost-button compact-button" data-rule-action="none" data-rule-kind="items">なし</button><button type="button" class="ghost-button compact-button" data-rule-action="visible-on" data-rule-kind="items">表示中を許可</button><button type="button" class="ghost-button compact-button" data-rule-action="visible-off" data-rule-kind="items">表示中を除外</button><button type="button" class="ghost-button compact-button" data-rule-action="invert" data-rule-kind="items">反転</button></div>
+              <div id="research-rule-items-list" class="research-rule-list"></div>
+            </section>
+          </div>
+        </details>
+
         <div class="research-quick-targets" aria-label="試合数プリセット">
           <button class="ghost-button compact-button" type="button" data-research-target="1000">1,000戦</button>
           <button class="ghost-button compact-button" type="button" data-research-target="10000">10,000戦</button>

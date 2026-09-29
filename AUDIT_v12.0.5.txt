@@ -1,0 +1,80 @@
+ニワラバトル v12.0.5 環境研究条件 監査結果
+===========================================
+
+1. 構文 / HTML
+---------------
+- app-config.js: node --check OK
+- game-data.js: node --check OK
+- game.js: node --check OK
+- format-engine.js: node --check OK
+- pwa.js: node --check OK
+- sim-core.js: node --check OK
+- sim-manager.js: node --check OK
+- sim-worker.js: node --check OK
+- pokedex-research.js: node --check OK
+- sw.js: node --check OK
+- manifest.webmanifest: JSON OK
+- HTML id: 重複なし
+- 新規研究条件UIの必須ID: 欠損なし
+
+2. デフォルト条件の互換性
+-------------------------
+rulesを指定しない従来configで各10戦。
+- シングル: 完走
+- ダブル: 完走
+- トリプル: 完走
+- 6vs6: 完走
+- タッグ: 完走
+
+旧runで config.rules がない場合は全ポケモン・全技・全特性・全持ち物を許可する互換処理です。
+
+3. 強い制限条件テスト
+---------------------
+使用可能条件:
+- ポケモン: 先頭6種のみ
+- 技: その6種から指定した少数技のみ
+- 特性: 指定した特性のみ
+- 持ち物: なし / たべのこし / オボンのみ相当の3候補
+
+各20戦:
+- シングル: 指定外 species/moves/abilities/items = 0
+- ダブル: 指定外 species/moves/abilities/items = 0
+- トリプル: 指定外 species/moves/abilities/items = 0
+- 6vs6: 指定外 species/moves/abilities/items = 0
+- タッグ: 指定外 species/moves/abilities/items = 0
+
+4. 1技だけの制限
+-----------------
+6ポケモンそれぞれに合法技が1つしか残らない条件でも研究を実行できることを確認。
+v12.0.4で導入した1～4技構成と整合します。
+
+5. 持ち物制限
+-------------
+- 「持ち物なし」だけ許可: 研究実行 OK
+- 「持ち物なし」禁止 + 実物持ち物6種: 研究実行 OK / 指定外持ち物0
+- 「持ち物なし」禁止 + 実物持ち物5種以下: 事前検証エラー
+
+6. 構築不能条件
+---------------
+使用可能ポケモンを5種にした条件を validateConfig に投入し、
+「構築可能なポケモンが5種。6種以上必要」のエラーになることを確認。
+技/特性の制限によって実質構築不能になった種も同じ判定から除外されます。
+
+7. Worker分割互換
+-----------------
+同一の条件指定config、同一seedで
+- 20戦一括
+- 10戦 + 10戦を mergeStats
+を比較し JSON 完全一致。
+
+8. CPU評価
+----------
+RANKED_ATTACKS の候補は許可技集合でフィルタするよう変更。
+実際には使用禁止の技を、制限環境のCPUだけが仮想的な脅威として評価する不整合を防止。
+
+9. 保存互換
+-----------
+研究DB:
+- DB_NAME = niwaraBattleResearchV11 を維持
+- DB_VERSION = 2 を維持
+既存runの削除やDBマイグレーションは不要です。
