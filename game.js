@@ -1761,6 +1761,10 @@ function getUsablePlayerMoves() {
 function scoreMove(attacker, defender, move) {
   if (!move.struggle && move.pp <= 0) return -9999;
   if (!isMoveAllowedByItem(attacker, move)) return -9999;
+  // v12.0.6: 「今この場では必ず失敗する技」を威力だけで高評価しない。
+  if (move.requiresTerrain && !v6EnsureFieldState().terrain.type) return -9999;
+  if (move.firstTurnOnly && (attacker.turnsOnField || 0) > 0) return -9999;
+  if (move.requiresTargetItem && (!v6ItemIsActive(defender) || defender.item.id === "none")) return -9999;
   if (move.category === "status") {
     if (move.healRatio || move.healByWeather) {
       if (!canRecover(attacker)) return -50;
@@ -5783,7 +5787,7 @@ scoreMove = function(attacker, defender, move) {
   const V8_ABILITY_VALUE = {
     "good-as-gold": 13, "magic-guard": 12, "power-construct": 12, "night-scales": 12,
     unaware: 11, regenerator: 10, "fur-coat": 10, "water-bubble": 11, adaptability: 9,
-    "sheer-force": 10, sharpness: 9, schooling: 10, "halloween-punk": 10,
+    "sheer-force": 10, sharpness: 9, schooling: 12, "halloween-punk": 10,
     "trick-builder": 9, drizzle: 8, "sand-stream": 8, levitate: 7, "poison-heal": 10,
     "speed-boost": 10, sturdy: 7, "clear-body": 6, "thick-fat": 7, "lightning-rod": 7,
     "sap-sipper": 7, competitive: 7, moxie: 7, "magic-bounce": 10, "shadow-tag": 9,
@@ -5830,11 +5834,48 @@ scoreMove = function(attacker, defender, move) {
     return [...species.abilities].sort((a,b) => (V8_ABILITY_VALUE[b.id] || 0) - (V8_ABILITY_VALUE[a.id] || 0))[0] || species.abilities[0];
   }
 
+  function v1206AiExpectedHits(move) {
+    if (!Array.isArray(move?.multiHit)) return 1;
+    const [min,max] = move.multiHit;
+    if (min === max) return min;
+    // 本作の2～5回技の通常分布は概ね平均3回。構築/AIでは期待値として扱う。
+    if (min === 2 && max === 5) return 3;
+    return (min + max) / 2;
+  }
+
+  function v1206AiStaticPower(move) {
+    if (!move || move.category === "status") return 0;
+    const base = Number(move.power) || 0;
+    // 可変威力・連続技・条件付き威力を、表示上の基礎威力だけで評価しない。
+    if (Array.isArray(move.multiHit) && base > 0) return base * v1206AiExpectedHits(move);
+    if (move.weightPower || move.weightRatioPower || move.gyroBall) return 80;
+    if (move.hardPress) return 75;
+    if (move.reversal) return 80;
+    if (move.storedPower) return 60;
+    if (move.spitUp) return 80;
+    if (move.weatherBall) return 70;
+    if (move.furyCutter) return 65;
+    if (move.rollout) return 60;
+    if (move.beatUp) return 70;
+    if ((move.doubleIfTargetStatus || move.venoshock || move.doubleIfUserStatus || move.doubleIfDamagedThisTurn || move.doubleIfLastMoveFailed || move.doubleIfNoItem) && base > 0) return base * 1.25;
+    if (move.risingVoltage && base > 0) return base * 1.2;
+    if (move.rainBonus && base > 0) return base * Math.min(1.25, Number(move.rainBonus) || 1);
+    if (move.boostInMisty && base > 0) return base * 1.15;
+    if (move.fixedDamage === "level") return 50;
+    if (move.superFang) return 70;
+    if (move.endeavor) return 55;
+    if (move.finalGambit) return 80;
+    if (move.counter || move.mirrorCoat || move.metalBurst) return 60;
+    if (move.ohko) return 75;
+    if (Number.isFinite(base) && base > 0) return base;
+    return 0;
+  }
+
   function v8MoveStaticScore(species, move, abilityId = null) {
     if (!move) return -999;
     const r = v8Role(species);
     if (move.category !== "status") {
-      let s = (move.power || 0) * ((move.accuracy ?? 100) / 100);
+      let s = v1206AiStaticPower(move) * ((move.accuracy ?? 100) / 100);
       if (species.types.includes(move.type)) s += 38;
       if (r.phys && move.category === "physical") s += 18;
       if (r.spec && move.category === "special") s += 18;
@@ -5853,6 +5894,17 @@ scoreMove = function(attacker, defender, move) {
       if (abilityId === "water-bubble" && move.type === "みず") s += 30;
       if (abilityId === "adaptability" && species.types.includes(move.type)) s += 16;
       if (abilityId === "night-scales" && move.category === "special") s += 25;
+      // 条件付き技は、条件が常時成立する通常打点より構築段階で一段低く評価する。
+      if (move.requiresTerrain) {
+        const hasOwnTerrain = species.movePool.some(id => Boolean(MOVE_DEX[id]?.terrain));
+        s -= hasOwnTerrain ? 42 : 105;
+      }
+      if (move.requiresTargetItem) s -= 10;
+      if (move.firstTurnOnly) s -= 22;
+      if (move.suckerPunch) s -= 14;
+      if (move.upperHand) s -= 28;
+      if (move.twoTurn || move.twoTurnWeather) s -= 22;
+      if (move.rampage) s -= 10;
       return s;
     }
 
@@ -6231,28 +6283,51 @@ scoreMove = function(attacker, defender, move) {
       p.side=pub.side;p.types=[...pub.types];p.status=pub.status;p.stages={...p.stages,...pub.stages};return p;
     });
   }
+  function v1206AiModeledDamage(attacker,defender,move){
+    const eff=getEffectiveMove(attacker,move);if(!eff||eff.category==="status")return 0;
+    let effectiveness=1;try{effectiveness=getTypeEffectivenessV5(attacker,defender,eff);}catch(_){}
+    if(effectiveness===0)return 0;
+    if(eff.ohko)return defender.hp;
+    if(eff.fixedDamage==="level")return Math.min(defender.hp,LEVEL);
+    if(eff.superFang)return Math.max(1,Math.floor(defender.hp/2));
+    if(eff.endeavor)return Math.max(0,defender.hp-attacker.hp);
+    if(eff.finalGambit)return Math.min(defender.hp,attacker.hp);
+    if(eff.counter){return attacker.lastDamageCategory==="physical"?Math.min(defender.hp,Math.max(0,(attacker.lastDamageAmount||0)*2)):0;}
+    if(eff.mirrorCoat){return attacker.lastDamageCategory==="special"?Math.min(defender.hp,Math.max(0,(attacker.lastDamageAmount||0)*2)):0;}
+    if(eff.metalBurst){return attacker.lastDamageAmount>0?Math.min(defender.hp,Math.max(0,Math.floor(attacker.lastDamageAmount*1.5))):0;}
+    try{
+      const r=calculateDamage(attacker,defender,eff,{randomFactor:0.925,forceCritical:false});
+      let dmg=Number(r?.damage||0);
+      if(Array.isArray(eff.multiHit))dmg*=v1206AiExpectedHits(eff);
+      if(typeof v6CanTriggerResistBerry==="function"&&v6CanTriggerResistBerry(defender,eff,r?.effectiveness??1))dmg=Math.max(1,Math.floor(dmg*0.5));
+      return dmg;
+    }catch(_){return 0;}
+  }
   function v10AiExpectedDamageInfo(attacker,pub,move,difficulty){
     const eff=getEffectiveMove(attacker,move);
     if(!eff||eff.category==="status")return {mean:0,min:0,max:0,accuracy:eff?.accuracy??100};
     const vals=[];
     for(const defender of v10AiBeliefDefenders(pub,eff,difficulty)){
-      try{
-        const r=calculateDamage(attacker,defender,eff,{randomFactor:0.925,forceCritical:false});
-        let dmg=Number(r?.damage||0);
-        if(typeof v6CanTriggerResistBerry==="function"&&v6CanTriggerResistBerry(defender,eff,r?.effectiveness??1))dmg=Math.max(1,Math.floor(dmg*0.5));
-        vals.push(dmg/Math.max(1,defender.maxHP));
-      }catch(_){vals.push(0);}
+      const dmg=v1206AiModeledDamage(attacker,defender,eff);
+      vals.push(dmg/Math.max(1,defender.maxHP));
     }
     if(!vals.length)vals.push(0);
     return {mean:vals.reduce((a,b)=>a+b,0)/vals.length,min:Math.min(...vals),max:Math.max(...vals),accuracy:eff.accuracy??100};
   }
   function v10AiMoveStaticThreat(sp,move){
     if(!move||move.category==="status")return -999;
-    let x=(move.power||0)*((move.accuracy??100)/100);
+    if(move.requiresTerrain&&!v6EnsureFieldState().terrain.type)return -9999;
+    let x=v1206AiStaticPower(move)*((move.accuracy??100)/100);
     if(sp.types.includes(move.type))x*=1.35;
     if((move.priority||0)>0)x+=18;
     if(move.recharge)x-=25;
-    if(move.selfDestruct||move.faintUser)x-=18;
+    if(move.selfDestruct||move.faintUser||move.finalGambit)x-=18;
+    if(move.requiresTargetItem)x-=8;
+    if(move.firstTurnOnly)x-=12;
+    if(move.suckerPunch)x-=12;
+    if(move.upperHand)x-=24;
+    if(move.twoTurn||move.twoTurnWeather)x-=18;
+    if(move.rampage)x-=8;
     return x;
   }
   function v10AiPossibleOpponentMoves(pub,difficulty){
@@ -6270,7 +6345,7 @@ scoreMove = function(attacker, defender, move) {
     for(const move of moves){
       let modeled=0;
       for(const attacker of v10AiBeliefAttackers(pub,move,difficulty)){
-        try{const r=calculateDamage(attacker,candidate,move,{randomFactor:0.925,forceCritical:false});modeled=Math.max(modeled,(Number(r?.damage||0)/Math.max(1,candidate.maxHP))*((move.accuracy??100)/100));}catch(_){}
+        try{const dmg=v1206AiModeledDamage(attacker,candidate,move);modeled=Math.max(modeled,(dmg/Math.max(1,candidate.maxHP))*((move.accuracy??100)/100));}catch(_){}
       }
       const obs=revealed.has(move.id)?v10AiObservedDamageEstimate(candidate,pub,move):null;
       const observedLikely=obs?.likelyAmount?obs.likelyAmount/Math.max(1,candidate.maxHP):0;
@@ -6319,15 +6394,26 @@ scoreMove = function(attacker, defender, move) {
   }
   function v10AiScoreMoveFor(attacker,side,pub,move,difficulty){
     const eff=getEffectiveMove(attacker,move);if(!eff)return -9999;
+    const currentField=v6EnsureFieldState();
+    if(eff.requiresTerrain&&!currentField.terrain.type)return -9999;
+    if(eff.firstTurnOnly&&(attacker.turnsOnField||0)>0)return -9999;
+    // 相手の持ち物が「なし/消費済み」と公開済みならポルターガイスト系は確実に失敗する。
+    if(eff.requiresTargetItem&&pub.itemId==="none")return -9999;
     const hp=attacker.hp/Math.max(1,attacker.maxHP),level=v10AiLevel(difficulty);
     if(eff.category!=="status"){
       const info=v10AiExpectedDamageInfo(attacker,pub,move,difficulty),visible=Math.max(.01,pub.hpPercent/100);
       const needsCharge=v10AiRequiresChargeTurn(attacker,eff);
-      let score=info.mean*(needsCharge?82:205) + (info.accuracy-80)*0.25 + v10AiSwitchCoverageAdjustment(side,eff,difficulty);
+      const hitChance=Math.max(0,Math.min(1,(info.accuracy??100)/100));
+      let score=info.mean*hitChance*(needsCharge?82:205) + (info.accuracy-80)*0.25 + v10AiSwitchCoverageAdjustment(side,eff,difficulty);
+      // 相手のこのターンの未公開入力を読まず、成立が不確実な技には期待値ペナルティを置く。
+      if(eff.suckerPunch)score-=18;
+      if(eff.upperHand)score-=32;
+      if(eff.requiresTargetItem&&pub.itemId==null)score-=8;
+      if(eff.rampage)score-=8;
       // 即時攻撃だけを「このターンのKO」として評価する。ため技は次ターンまで生存できるかを先に評価。
       if(!needsCharge){
-        if(info.min>=visible)score+=155;else if(info.mean>=visible)score+=105;else if(info.max>=visible)score+=42;
-        if((eff.priority||0)>0){score+=18;if(info.mean>=visible)score+=48;}
+        if(info.min>=visible)score+=155*hitChance;else if(info.mean>=visible)score+=105*hitChance;else if(info.max>=visible)score+=42*hitChance;
+        if((eff.priority||0)>0){score+=18;if(info.mean>=visible)score+=48*hitChance;}
       }else{
         const threat=v10AiIncomingThreat(attacker,pub,difficulty);
         const incoming=Math.max(threat.worst||0,threat.observedWorst||0);
@@ -7861,7 +7947,7 @@ scoreMove = function(attacker, defender, move) {
     const moves=s.movePool.map(id=>MOVE_DEX[id]).filter(Boolean).slice().sort((a,b)=>a.type.localeCompare(b.type,"ja")||a.name.localeCompare(b.name,"ja"));
     const moveRows=moves.map(m=>`<tr><td>${esc(m.name)}</td><td>${esc(m.type)}</td><td>${catName(m.category)}</td><td>${m.power??"-"}</td><td>${m.accuracy??"-"}</td><td>${m.maxPP??"-"}</td><td>${esc(m.description||"")}</td></tr>`).join("");
     const formEntries=Object.entries(s.forms||{});
-    const formsHtml=formEntries.length?`<section class="dex-forms"><h3>フォルム <span class="view-note">${formEntries.length}種</span></h3><div class="dex-form-grid">${formEntries.map(([key,f])=>`<article class="dex-form-card" data-form-key="${esc(key)}"><div class="dex-form-head"><strong>${esc(f.name||key)}</strong><span>${f.height!=null?`高さ ${f.height}m`:""}${f.weight!=null?`　重さ ${f.weight}kg`:""}</span></div><div class="dex-stat-grid">${statGrid(f.baseStats||s.baseStats)}</div></article>`).join("")}</div></section>`:"";
+    const formsHtml=formEntries.length?`<section class="dex-forms"><h3>フォルム <span class="view-note">${formEntries.length}種</span></h3><div class="dex-form-grid">${formEntries.map(([key,f])=>`<article class="dex-form-card" data-form-key="${esc(key)}"><div class="dex-form-head"><strong>${esc(f.name||key)}</strong><span>${f.height!=null?`高さ ${f.height}m`:""}${f.weight!=null?`　重さ ${f.weight}kg`:""}</span></div>${Array.isArray(f.types)?`<div class="view-note">${f.types.map(esc).join(" / ")}</div>`:""}<div class="dex-stat-grid">${statGrid(f.baseStats||s.baseStats)}</div></article>`).join("")}</div></section>`:"";
     pokedexDetail.innerHTML=`
       <div class="dex-head"><div><div class="dex-number">No.${String(s.dexNo??"-").padStart(3,"0")}</div><h2>${esc(s.name)}</h2><div>${s.types.map(esc).join(" / ")}${s.classification?`　${esc(s.classification)}`:""}</div></div><div>${s.height!=null?`高さ ${s.height}m`:""}${s.weight!=null?`　重さ ${s.weight}kg`:""}</div></div>
       ${formsHtml}

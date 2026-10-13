@@ -2618,6 +2618,15 @@ SPECIES_DEX["gatlantes"].abilities = ["compound-eyes", "sturdy", "sand-stream"].
 SPECIES_DEX["metalifes"].abilities = ["heatproof", "sturdy", "stalwart"].map(abilityRef);
 
 SPECIES_DEX["dolpika"].abilities = ["forecast", "soundproof", "lightning-rod"].map(abilityRef);
+// v12.0.6: 図鑑でもてんきやの各フォルムを確認できるようにする。
+// 戦闘中のフォルム名・タイプ変化は game.js の FORECAST_FORM_DATA と同一。
+SPECIES_DEX["dolpika"].forms = {
+  clear: { name: "ドルピカ(ドルピカのすがた)", height: 0.7, weight: 14.8, types: ["でんき", "ノーマル"], baseStats: { ...SPECIES_DEX["dolpika"].baseStats } },
+  sun:   { name: "ドルピカ(かいせいのすがた)", height: 0.7, weight: 14.8, types: ["でんき", "ほのお"],   baseStats: { ...SPECIES_DEX["dolpika"].baseStats } },
+  rain:  { name: "ドルピカ(うてんのすがた)",   height: 0.7, weight: 14.8, types: ["でんき", "みず"],     baseStats: { ...SPECIES_DEX["dolpika"].baseStats } },
+  sand:  { name: "ドルピカ(さじんのすがた)",   height: 0.7, weight: 14.8, types: ["でんき", "いわ"],     baseStats: { ...SPECIES_DEX["dolpika"].baseStats } },
+  snow:  { name: "ドルピカ(ふうせつのすがた)", height: 0.7, weight: 14.8, types: ["でんき", "こおり"],   baseStats: { ...SPECIES_DEX["dolpika"].baseStats } }
+};
 
 SPECIES_DEX["jaboru"].abilities = ["dry-skin", "moxie", "speed-boost"].map(abilityRef);
 
