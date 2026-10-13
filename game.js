@@ -2438,6 +2438,21 @@ function v6GetMoveDescription(move) {
     parts.push(`相手の能力変化：${list.join(" / ")}`);
   }
   if (move.secondaryStatus) parts.push(`${move.secondaryStatus.chance}%で${STATUS_NAMES[move.secondaryStatus.status] || move.secondaryStatus.status}`);
+  if (move.targetStatChangeChance) parts.push(`${move.targetStatChangeChance.chance}%で相手の${STAT_JP[move.targetStatChangeChance.stat] || move.targetStatChangeChance.stat}を${Math.abs(move.targetStatChangeChance.amount)}段階${move.targetStatChangeChance.amount>0?'上げる':'下げる'}`);
+  if (move.selfStatChangeChance) parts.push(`${move.selfStatChangeChance.chance}%で自分の${STAT_JP[move.selfStatChangeChance.stat] || move.selfStatChangeChance.stat}を${Math.abs(move.selfStatChangeChance.amount)}段階${move.selfStatChangeChance.amount>0?'上げる':'下げる'}`);
+  if (move.flinchChance) parts.push(`${move.flinchChance}%で相手をひるませる`);
+  if (move.confuseChance) parts.push(`${move.confuseChance}%で相手をこんらんさせる`);
+  if (move.confuse) parts.push(`相手をこんらんさせる`);
+  if (move.directStatus) parts.push(`${STATUS_NAMES[move.directStatus] || move.directStatus}状態にする`);
+  if (move.toxic) parts.push(`相手をもうどく状態にする`);
+  if (move.hazard) parts.push(`${move.hazard==='stealthRock'?'ステルスロック':move.hazard==='spikes'?'まきびし':move.hazard==='toxicSpikes'?'どくびし':move.hazard==='stickyWeb'?'ねばねばネット':move.hazard}を相手の場に設置する`);
+  if (move.screen) parts.push(`${move.screen==='reflect'?'リフレクター':move.screen==='lightScreen'?'ひかりのかべ':move.screen}を張る`);
+  if (move.protect) parts.push(`そのターンの攻撃から身を守る`);
+  if (move.pivot) parts.push(`攻撃または効果の後に控えと交代する`);
+  if (move.forceSwitch) parts.push(`相手を強制交代させる`);
+  if (move.removeTerrain) parts.push(`命中するとフィールドを解除する`);
+  if (move.multiHit) parts.push(`${move.multiHit[0]}～${move.multiHit[1]}回連続で攻撃する`);
+  if (move.highCrit) parts.push(`急所に当たりやすい`);
   if (move.recoilRatio) parts.push(`相手が失ったHPの${move.recoilRatio === 1/3 ? "1/3" : move.recoilRatio === 1/4 ? "1/4" : move.recoilRatio === 1/2 ? "1/2" : Math.round(move.recoilRatio * 100) + "%"}を四捨五入（0.5切り上げ）して反動で受ける`);
   if (move.recoilMaxHPRatio) parts.push(`最大HPの${move.recoilMaxHPRatio === 0.5 ? "1/2" : Math.round(move.recoilMaxHPRatio * 100) + "%"}を反動で失う`);
   if (move.recharge) parts.push("攻撃が成功すると、次のターンは反動で技も通常交代も選べない");
@@ -6472,17 +6487,21 @@ scoreMove = function(attacker, defender, move) {
     let offense=-999;
     for(const move of getSelectableMoves(candidate)){offense=Math.max(offense,v10AiScoreMoveFor(candidate,side,pub,move,difficulty));}
     if(!Number.isFinite(offense))offense=0;
-    let score=offense*.72 + hp*42 - threat.expected*115 - threat.worst*55;
+    const faster=getModifiedStat(candidate,"speed")>v10AiApproxSpeed(pub,difficulty);
+    let score=offense*.72 + hp*46 - threat.expected*150 - threat.worst*95;
+    // タイプ相性だけで受け出さず、CPU自身の現在HP実数と推定被ダメージを直接比較する。
+    if(threat.worst>=hp*.98){score-=offense>=95&&faster?105:(difficulty==="very-strong"?360:difficulty==="strong"?270:150);}
+    else if(threat.worst>=hp*.78)score-=difficulty==="very-strong"?135:difficulty==="strong"?95:50;
+    else if(threat.expected<.34)score+=difficulty==="very-strong"?42:25;
     if(threat.observedWorst>0){
-      score-=threat.observedWorst*(difficulty==="very-strong"?150:difficulty==="strong"?105:55);
-      // KO可否は割合ではなく、CPU自身が覚えている実ダメージと現在HPの実数で直接比較する。
-      if((threat.observedLikelyAmount||0)>=candidate.hp)score-=difficulty==="very-strong"?370:difficulty==="strong"?270:135;
-      else if((threat.observedWorstAmount||0)>=candidate.hp)score-=difficulty==="very-strong"?245:difficulty==="strong"?170:90;
-      else if((threat.observedWorstAmount||0)>=candidate.hp*.82)score-=difficulty==="very-strong"?145:difficulty==="strong"?95:45;
+      score-=threat.observedWorst*(difficulty==="very-strong"?175:difficulty==="strong"?125:65);
+      if((threat.observedLikelyAmount||0)>=candidate.hp)score-=difficulty==="very-strong"?420:difficulty==="strong"?300:160;
+      else if((threat.observedWorstAmount||0)>=candidate.hp)score-=difficulty==="very-strong"?290:difficulty==="strong"?205:105;
+      else if((threat.observedWorstAmount||0)>=candidate.hp*.82)score-=difficulty==="very-strong"?165:difficulty==="strong"?110:55;
     }
-    if(getModifiedStat(candidate,"speed")>v10AiApproxSpeed(pub,difficulty))score+=12;
-    const ss=v6GetSideState(side);if(ss.stealthRock)score-=getTypeEffectiveness("いわ",candidate.types)*8;if((ss.spikes||0)>0&&!v6IsGrounded(candidate))score+=0;else score-=(ss.spikes||0)*5;
-    if(candidate.ability?.id==="regenerator"&&candidate.hp<candidate.maxHP*.7)score+=8;
+    if(faster)score+=18;
+    const ss=v6GetSideState(side);if(ss.stealthRock)score-=getTypeEffectiveness("いわ",candidate.types)*11;if((ss.spikes||0)>0&&!v6IsGrounded(candidate))score+=0;else score-=(ss.spikes||0)*7;
+    if(candidate.ability?.id==="regenerator"&&candidate.hp<candidate.maxHP*.7)score+=10;
     return score;
   }
   function v10AiChooseSwitchIndex(side,difficulty,{replacement=false,pivot=false}={}){
@@ -6508,9 +6527,10 @@ scoreMove = function(attacker, defender, move) {
       if(candidate){
         const switchScore=v10AiSwitchScore(side,candidate,pub,difficulty);
         const currentThreat=v10AiIncomingThreat(own,pub,difficulty);
-        const danger=currentThreat.worst>=own.hp/Math.max(1,own.maxHP)||currentThreat.expected>.62;
+        const ownHp=own.hp/Math.max(1,own.maxHP),danger=currentThreat.worst>=ownHp*.84||currentThreat.expected>=ownHp*.62;
         let threshold=best.score+level.switchMargin;
-        if(danger)threshold-=difficulty==="very-strong"?58:difficulty==="strong"?35:10;
+        if(danger)threshold-=difficulty==="very-strong"?72:difficulty==="strong"?45:12;
+        if(currentThreat.worst>=ownHp*.98)threshold-=difficulty==="very-strong"?38:20;
         if(switchScore>threshold&&(difficulty!=="normal"||Math.random()<.55))return {type:"switch",index:idx};
       }
     }
@@ -7945,19 +7965,28 @@ scoreMove = function(attacker, defender, move) {
     const statGrid=baseStats=>{const total=Object.values(baseStats).reduce((a,b)=>a+b,0);return [...statPairs.map(([k,l])=>`<div class="dex-stat"><span>${l}</span><strong>${baseStats[k]}</strong></div>`),`<div class="dex-stat"><span>合計</span><strong>${total}</strong></div>`].join("");};
     const abilities=s.abilities.map(a=>`<div class="dex-ability"><strong>${esc(a.name)}</strong><div>${esc(a.description||"説明なし")}</div></div>`).join("");
     const moves=s.movePool.map(id=>MOVE_DEX[id]).filter(Boolean).slice().sort((a,b)=>a.type.localeCompare(b.type,"ja")||a.name.localeCompare(b.name,"ja"));
-    const moveRows=moves.map(m=>`<tr><td>${esc(m.name)}</td><td>${esc(m.type)}</td><td>${catName(m.category)}</td><td>${m.power??"-"}</td><td>${m.accuracy??"-"}</td><td>${m.maxPP??"-"}</td><td>${esc(m.description||"")}</td></tr>`).join("");
+    const moveRows=moves.map(m=>{const tags=v6MoveTags(m),effect=v6GetMoveDescription(m)+(tags.length?` [${tags.join(' / ')}]`:``);return `<tr><td>${esc(m.name)}</td><td>${esc(m.type)}</td><td>${catName(m.category)}</td><td>${m.power??"-"}</td><td>${m.accuracy??"-"}</td><td>${m.maxPP??"-"}</td><td>${esc(effect)}</td></tr>`;}).join("");
     const formEntries=Object.entries(s.forms||{});
     const formsHtml=formEntries.length?`<section class="dex-forms"><h3>フォルム <span class="view-note">${formEntries.length}種</span></h3><div class="dex-form-grid">${formEntries.map(([key,f])=>`<article class="dex-form-card" data-form-key="${esc(key)}"><div class="dex-form-head"><strong>${esc(f.name||key)}</strong><span>${f.height!=null?`高さ ${f.height}m`:""}${f.weight!=null?`　重さ ${f.weight}kg`:""}</span></div>${Array.isArray(f.types)?`<div class="view-note">${f.types.map(esc).join(" / ")}</div>`:""}<div class="dex-stat-grid">${statGrid(f.baseStats||s.baseStats)}</div></article>`).join("")}</div></section>`:"";
     pokedexDetail.innerHTML=`
-      <div class="dex-head"><div><div class="dex-number">No.${String(s.dexNo??"-").padStart(3,"0")}</div><h2>${esc(s.name)}</h2><div>${s.types.map(esc).join(" / ")}${s.classification?`　${esc(s.classification)}`:""}</div></div><div>${s.height!=null?`高さ ${s.height}m`:""}${s.weight!=null?`　重さ ${s.weight}kg`:""}</div></div>
+      <div class="dex-head"><div><div class="dex-number">No.${String(s.dexNo??"-").padStart(3,"0")}</div><h2>${esc(s.name)}</h2><div>${s.types.map(esc).join(" / ")}${s.classification?`　${esc(s.classification)}`:""}</div></div><div class="dex-head-actions"><div>${s.height!=null?`高さ ${s.height}m`:""}${s.weight!=null?`　重さ ${s.weight}kg`:""}</div><button id="pokedex-copy-current" class="ghost-button compact-button" type="button">このポケモンをコピー</button></div></div>
       ${formsHtml}
       <h3>${formEntries.length?"基準フォルムの種族値":"種族値"}</h3><div class="dex-stat-grid">${statGrid(s.baseStats)}</div>
       <h3>特性</h3><div class="dex-ability-list">${abilities}</div>
       <h3>覚える技 <span class="view-note">${moves.length}種</span></h3>
       <div class="dex-move-table-wrap"><table class="dex-move-table"><thead><tr><th>技</th><th>タイプ</th><th>分類</th><th>威力</th><th>命中</th><th>PP</th><th>効果</th></tr></thead><tbody>${moveRows}</tbody></table></div>
       <section id="pokedex-research-block" class="pokedex-research-block"><h3>環境研究データ</h3><div class="view-note">保存済みの環境研究結果を読み込み中…</div></section>`;
-    window.dispatchEvent(new CustomEvent("niwara-dex-detail-rendered",{detail:{speciesId:selectedSpeciesId}}));
+    bindDexCopyButtons();window.dispatchEvent(new CustomEvent("niwara-dex-detail-rendered",{detail:{speciesId:selectedSpeciesId}}));
   }
+  function dexSpeciesText(s){
+    if(!s)return'';const lines=[`No.${String(s.dexNo??'-').padStart(3,'0')} ${s.name}`,`タイプ: ${s.types.join(' / ')}`,s.classification?`分類: ${s.classification}`:'',`高さ: ${s.height??'-'}m / 重さ: ${s.weight??'-'}kg`,`種族値: H${s.baseStats.hp} A${s.baseStats.attack} B${s.baseStats.defense} C${s.baseStats.specialAttack} D${s.baseStats.specialDefense} S${s.baseStats.speed} / 合計 ${Object.values(s.baseStats).reduce((a,b)=>a+b,0)}`].filter(Boolean);
+    const forms=Object.values(s.forms||{});if(forms.length){lines.push('【フォルム】');for(const f of forms){const b=f.baseStats||s.baseStats;lines.push(`${f.name||'-'}${f.types?` [${f.types.join('/')}]`:''} H${b.hp} A${b.attack} B${b.defense} C${b.specialAttack} D${b.specialDefense} S${b.speed} / 合計 ${Object.values(b).reduce((a,x)=>a+x,0)}`);}}
+    lines.push('【特性】');for(const a of s.abilities||[])lines.push(`${a.name}: ${a.description||'説明なし'}`);
+    lines.push('【覚える技】');for(const m of (s.movePool||[]).map(id=>MOVE_DEX[id]).filter(Boolean).sort((a,b)=>a.name.localeCompare(b.name,'ja'))){const tags=v6MoveTags(m);lines.push(`${m.name}｜${m.type}/${catName(m.category)}｜威力${m.power??'-'} 命中${m.accuracy??'-'} PP${m.maxPP??'-'}｜${v6GetMoveDescription(m)}${tags.length?` [${tags.join(' / ')}]`:''}`);}
+    return lines.join('\n');
+  }
+  async function copyDexText(text,button){const original=button?.textContent||'コピー';try{await v8WriteClipboard(text);if(button)button.textContent='コピーしました';}catch(e){console.warn('dex copy failed',e);if(button)button.textContent='コピー失敗';}finally{if(button)setTimeout(()=>button.textContent=original,1400);}}
+  function bindDexCopyButtons(){const current=$('pokedex-copy-current'),all=$('pokedex-copy-all');if(current)current.onclick=()=>copyDexText(dexSpeciesText(SPECIES_DEX[selectedSpeciesId]),current);if(all&&!all.dataset.bound){all.dataset.bound='1';all.onclick=()=>{const text=Object.values(SPECIES_DEX).slice().sort((a,b)=>(a.dexNo??999)-(b.dexNo??999)).map(dexSpeciesText).join('\n\n====================\n\n');copyDexText(text,all);};}}
   function populateDexAdvanced(){
     const typeSel=$("pokedex-filter-type"),typeSel2=$("pokedex-filter-type2"),abSel=$("pokedex-filter-ability"),mvSel=$("pokedex-filter-move");
     const types=[...new Set(Object.values(SPECIES_DEX).flatMap(s=>s.types))].sort((a,b)=>a.localeCompare(b,"ja"));
@@ -7967,7 +7996,7 @@ scoreMove = function(attacker, defender, move) {
     ["pokedex-filter-type","pokedex-filter-type2","pokedex-filter-ability","pokedex-filter-move","pokedex-sort","pokedex-min-bst","pokedex-max-bst","pokedex-min-hp","pokedex-max-hp","pokedex-min-atk","pokedex-max-atk","pokedex-min-def","pokedex-max-def","pokedex-min-spa","pokedex-max-spa","pokedex-min-spd","pokedex-max-spd","pokedex-min-spe","pokedex-max-spe"].forEach(id=>$(id)?.addEventListener("input",renderDexList));
     $("pokedex-clear-filters")?.addEventListener("click",()=>{pokedexSearch.value="";["pokedex-filter-type","pokedex-filter-type2","pokedex-filter-ability","pokedex-filter-move"].forEach(id=>{if($(id))$(id).value="";});["pokedex-min-bst","pokedex-max-bst","pokedex-min-hp","pokedex-max-hp","pokedex-min-atk","pokedex-max-atk","pokedex-min-def","pokedex-max-def","pokedex-min-spa","pokedex-max-spa","pokedex-min-spd","pokedex-max-spd","pokedex-min-spe","pokedex-max-spe"].forEach(id=>{if($(id))$(id).value="";});$("pokedex-sort").value="number";renderDexList();});
   }
-  function openDex(){populateDexAdvanced();renderDexList();renderDexDetail();openModal(pokedexModal);}
+  function openDex(){populateDexAdvanced();renderDexList();renderDexDetail();bindDexCopyButtons();openModal(pokedexModal);}
   window.NIWARA_DEX_API={get selectedSpeciesId(){return selectedSpeciesId;},renderList:renderDexList,renderDetail:renderDexDetail,select(id){if(SPECIES_DEX[id]){selectedSpeciesId=id;renderDexList();renderDexDetail();}}};
 
   const ids={

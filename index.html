@@ -249,7 +249,7 @@
           <span id="research-progress-meta"></span>
           <span id="research-status" class="research-status">待機中</span>
         </div>
-        <p class="research-note">シミュレーションはアプリを開いている間だけ進みます。途中結果はIndexedDBへ保存されるため、停止・再開できます。画面を閉じても完了済み集計は残ります。高速研究コアは大量試行向けで、通常対戦と同じデータ・能力値・タイプ相性・主要な技/持ち物/場効果を使用しますが、極端に特殊な専用効果は簡略化される場合があります。</p>
+        <p class="research-note">シミュレーションはアプリを開いている間だけ進みます。途中結果はIndexedDBへ保存されるため、停止・再開できます。画面を閉じても完了済み集計は残ります。高速研究コアは大量試行向けで、通常対戦と同じデータ・能力値・タイプ相性・主要な技/持ち物/場効果を使用します。強いCPUでは蓄積済みの使用率・勝率を次の計算バッチへ反映し、上位ポケモンへの対策を持つ構築を評価する適応メタ方式です。極端に特殊な専用効果は簡略化される場合があります。</p>
       </section>
 
       <div id="research-summary" class="research-kpi-grid"></div>
@@ -515,7 +515,7 @@
     <section class="move-modal-card utility-modal-card" role="dialog" aria-modal="true" tabindex="-1" aria-labelledby="pokedex-title">
       <div class="move-modal-header">
         <div><div class="move-modal-kicker">ニワラ図鑑</div><h2 id="pokedex-title">ポケモン図鑑</h2></div>
-        <button id="pokedex-close" class="ghost-button" type="button">閉じる</button>
+        <div class="pokedex-copy-actions"><button id="pokedex-copy-all" class="ghost-button" type="button">図鑑全体をコピー</button><button id="pokedex-close" class="ghost-button" type="button">閉じる</button></div>
       </div>
       <div class="utility-modal-scroll" data-utility-scroll>
         <div class="pokedex-layout">

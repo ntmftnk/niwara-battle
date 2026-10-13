@@ -1127,3 +1127,6 @@ body.utility-modal-open{
 .research-rule-option:hover{border-color:#aebdc5;background:#f5f9fb}.research-rule-option.is-hidden{display:none}
 .research-rule-option input{margin-top:2px;flex:0 0 auto}.research-rule-option-text{min-width:0;display:flex;flex-direction:column;gap:2px}.research-rule-option-name{font-weight:800;word-break:break-word}.research-rule-option-meta{font-size:10px;color:#718087;word-break:break-word}
 @media(max-width:760px){.research-rules-grid{grid-template-columns:1fr}.research-rule-list{grid-template-columns:1fr}.research-rules-master{align-items:stretch}.research-rules-master button{flex:1 1 46%}}
+
+/* v12.0.7: Pokédex copy controls */
+.pokedex-copy-actions,.dex-head-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}.dex-head-actions{flex-direction:column;align-items:flex-end}.dex-head-actions .compact-button{white-space:nowrap}@media(max-width:640px){.pokedex-copy-actions{width:100%;justify-content:flex-end}.dex-head-actions{align-items:flex-start}}
