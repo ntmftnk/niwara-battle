@@ -6329,20 +6329,25 @@ scoreMove = function(attacker, defender, move) {
     if(!vals.length)vals.push(0);
     return {mean:vals.reduce((a,b)=>a+b,0)/vals.length,min:Math.min(...vals),max:Math.max(...vals),accuracy:eff.accuracy??100};
   }
+  function v10AiMoveTempoFactor(move,{instantCharge=false}={}){
+    if(!move)return 1;
+    let f=1;
+    if(move.recharge)f*=0.56;
+    if((move.twoTurn||move.twoTurnWeather)&&!instantCharge)f*=0.58;
+    if(move.rampage)f*=0.88;
+    return f;
+  }
   function v10AiMoveStaticThreat(sp,move){
     if(!move||move.category==="status")return -999;
     if(move.requiresTerrain&&!v6EnsureFieldState().terrain.type)return -9999;
-    let x=v1206AiStaticPower(move)*((move.accuracy??100)/100);
+    let x=v1206AiStaticPower(move)*((move.accuracy??100)/100)*v10AiMoveTempoFactor(move);
     if(sp.types.includes(move.type))x*=1.35;
     if((move.priority||0)>0)x+=18;
-    if(move.recharge)x-=25;
     if(move.selfDestruct||move.faintUser||move.finalGambit)x-=18;
     if(move.requiresTargetItem)x-=8;
     if(move.firstTurnOnly)x-=12;
     if(move.suckerPunch)x-=12;
     if(move.upperHand)x-=24;
-    if(move.twoTurn||move.twoTurnWeather)x-=18;
-    if(move.rampage)x-=8;
     return x;
   }
   function v10AiPossibleOpponentMoves(pub,difficulty){
@@ -6371,7 +6376,8 @@ scoreMove = function(attacker, defender, move) {
       // 実測した同一相手・同一技がある場合は、机上のタイプ相性より実測実数を優先する。
       const best=Math.max(modeled,observedLikely,observedSafe*0.93);
       const certainty=revealed.has(move.id)?1:(difficulty==="normal"?0.38:difficulty==="strong"?0.58:0.72);
-      const weighted=best*certainty;values.push(weighted);
+      const tempo=v10AiMoveTempoFactor(move);
+      const weighted=best*certainty*tempo;values.push(weighted);
       if(move.category==="physical")phys=Math.max(phys,weighted);else spec=Math.max(spec,weighted);
     }
     values.sort((a,b)=>b-a);
@@ -6419,7 +6425,8 @@ scoreMove = function(attacker, defender, move) {
       const info=v10AiExpectedDamageInfo(attacker,pub,move,difficulty),visible=Math.max(.01,pub.hpPercent/100);
       const needsCharge=v10AiRequiresChargeTurn(attacker,eff);
       const hitChance=Math.max(0,Math.min(1,(info.accuracy??100)/100));
-      let score=info.mean*hitChance*(needsCharge?82:205) + (info.accuracy-80)*0.25 + v10AiSwitchCoverageAdjustment(side,eff,difficulty);
+      const tempo=eff.recharge?0.56:1; // ため技は 82/205 の基礎係数ですでにターン損失を織り込み済み
+      let score=info.mean*hitChance*(needsCharge?82:205)*tempo + (info.accuracy-80)*0.25 + v10AiSwitchCoverageAdjustment(side,eff,difficulty);
       // 相手のこのターンの未公開入力を読まず、成立が不確実な技には期待値ペナルティを置く。
       if(eff.suckerPunch)score-=18;
       if(eff.upperHand)score-=32;
@@ -6450,7 +6457,10 @@ scoreMove = function(attacker, defender, move) {
       if(eff.pivot){const threat=v10AiIncomingThreat(attacker,pub,difficulty);score+=14+Math.max(0,threat.expected-.45)*55;}
       if(eff.drainRatio&&hp<.72)score+=26;
       if((eff.recoilRatio||eff.recoilMaxHPRatio)&&hp<.35)score-=55;
-      if(eff.recharge&&info.mean<visible)score-=72;
+      if(eff.recharge){
+        const lastEnemy=(enemyTeam||[]).filter(p=>p.hp>0).length<=1;
+        if(!lastEnemy)score-=info.mean>=visible?24:78;
+      }
       if(eff.futureSight){const pending=v6GetSideState(pub.side)?.futureSight;if(pending)return -9999;score=38+info.mean*75;}
       if(eff.selfDestruct||eff.faintUser){score+=info.mean>=visible?30:-85;if(hp<.22)score+=24;}
       return score;
@@ -6819,6 +6829,26 @@ scoreMove = function(attacker, defender, move) {
     if((enemyTeam||[]).includes(p))return "enemy";
     return null;
   }
+  function v915SameNameNeedsOwner(p){
+    if(!p?.name)return false;
+    return v8AllBattlePokemon().some(x=>x&&x!==p&&x.name===p.name);
+  }
+  function v915OwnedLogName(p){
+    const side=v915SideOfPokemon(p);
+    if(!side||!v915SameNameNeedsOwner(p))return p?.name||"";
+    return `${v8SideLabelStatic(side)}の${p.name}`;
+  }
+  function v915DisambiguateLogText(text,target=null,ctx=null){
+    const raw=String(text);
+    let p=null;
+    if(target?.name&&(raw.startsWith(`${target.name}は `)||raw.startsWith(`${target.name}に `)||raw.startsWith(`${target.name}の `)))p=target;
+    if(!p&&ctx?.attacker?.name&&ctx?.move?.name&&raw.startsWith(`${ctx.attacker.name}の ${ctx.move.name}`))p=ctx.attacker;
+    if(!p&&ctx?.attacker?.name&&(raw.startsWith(`${ctx.attacker.name}は `)||raw.startsWith(`${ctx.attacker.name}の `))&&ctx.attacker.name!==ctx?.defender?.name)p=ctx.attacker;
+    if(!p&&ctx?.defender?.name&&(raw.startsWith(`${ctx.defender.name}は `)||raw.startsWith(`${ctx.defender.name}に `))&&ctx.attacker?.name!==ctx.defender.name)p=ctx.defender;
+    if(!p&&v915ResidualPokemon?.name&&raw.startsWith(`${v915ResidualPokemon.name}は `))p=v915ResidualPokemon;
+    if(!p||!v915SameNameNeedsOwner(p))return raw;
+    return `${v915OwnedLogName(p)}${raw.slice(p.name.length)}`;
+  }
   function v915HasHpAmount(text){
     return /\b\d+\s+(?:HP\s+)?(?:ダメージ|回復|吸収|奪われ)|HPを\s+\d+\s+失った/.test(String(text));
   }
@@ -6855,10 +6885,11 @@ scoreMove = function(attacker, defender, move) {
     if(effectTarget?.item?.name && effectTarget.item.id!=="none" && raw.includes(effectTarget.item.name)) v8MarkItem(effectTarget);
     v8MarkUniqueEffectOwnerFromLog(text,"ability");
     v8MarkUniqueEffectOwnerFromLog(text,"item");
-    const result=V8_addLog(text,className);
-    const inferred=v915Target||v915InferTargetFromText(text,v915MoveExecutionContext);
+    const inferred=v915Target||v915InferTargetFromText(raw,v915MoveExecutionContext);
+    const shown=v915DisambiguateLogText(raw,inferred,v915MoveExecutionContext);
+    const result=V8_addLog(shown,className);
     if(inferred)v915AttachLogMeta(inferred);
-    try{V13CORE()?.replay?.event?.('single',{turn:turnNumber,text:String(text),className,snapshot:{a:getPlayerPokemon()?.name||null,b:getEnemyPokemon()?.name||null,aHP:getPlayerPokemon()?.hp??null,bHP:getEnemyPokemon()?.hp??null,weather:weather?.type||null}});}catch(_){}
+    try{V13CORE()?.replay?.event?.('single',{turn:turnNumber,text:shown,className,snapshot:{a:getPlayerPokemon()?.name||null,b:getEnemyPokemon()?.name||null,aHP:getPlayerPokemon()?.hp??null,bHP:getEnemyPokemon()?.hp??null,weather:weather?.type||null}});}catch(_){}
     return result;
   };
 
@@ -6931,8 +6962,9 @@ scoreMove = function(attacker, defender, move) {
   addLogs=function(logs){
     const ctx=Array.isArray(logs)?v915BatchContexts.get(logs):null;
     if(!ctx)return V915_addLogs(logs);
-    logs.forEach(text=>addLog(text,"",v915InferTargetFromText(text,ctx)));
-    v915BatchContexts.delete(logs);
+    const prev=v915MoveExecutionContext;v915MoveExecutionContext=ctx;
+    try{logs.forEach(text=>addLog(text,"",v915InferTargetFromText(text,ctx)));}
+    finally{v915MoveExecutionContext=prev;v915BatchContexts.delete(logs);}
   };
 
   if(typeof processResidualForPokemon==="function"){
