@@ -462,6 +462,12 @@ function renderBuilder() {
 
     builderSlots.appendChild(card);
   });
+  // v13.0.4: an in-progress but valid builder edit must survive a PWA reload.
+  // Do not overwrite the last valid persisted team while the editor has duplicates/invalid data.
+  if (!validateBuilder()) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(builderSets)); }
+    catch (error) { console.warn("編成の自動保存に失敗しました", error); }
+  }
 }
 
 // ============================================================
@@ -5687,9 +5693,9 @@ scoreMove = function(attacker, defender, move) {
     localStorage.setItem(V8_PARTY_LIBRARY_KEY, JSON.stringify(v8SavedParties));
   }
 
-  function v8RenderPartyLibrary() {
+  function v8RenderPartyLibrary(preferredId = null) {
     if (!v8SavedPartySelect) return;
-    const selected = v8SavedPartySelect.value;
+    const selected = preferredId || v8SavedPartySelect.value;
     v8SavedPartySelect.innerHTML = "";
     if (v8SavedParties.length === 0) {
       const o = document.createElement("option"); o.value = ""; o.textContent = "保存パーティーなし"; v8SavedPartySelect.appendChild(o);
@@ -5713,8 +5719,8 @@ scoreMove = function(attacker, defender, move) {
     const entry = { id: v8Uid(), name: name.slice(0, 24), sets: v8CloneSets(builderSets) };
     v8SavedParties.push(entry);
     v8PersistPartyLibrary();
-    v8RenderPartyLibrary();
-    v8SavedPartySelect.value = entry.id;
+    v8RenderPartyLibrary(entry.id);
+    if (v8SavedPartyName) v8SavedPartyName.value = entry.name;
     setBuilderMessage(`「${entry.name}」を新規保存しました。`, false);
   }
 
@@ -5726,8 +5732,8 @@ scoreMove = function(attacker, defender, move) {
     party.name = ((v8SavedPartyName?.value || party.name).trim() || party.name).slice(0, 24);
     party.sets = v8CloneSets(builderSets);
     v8PersistPartyLibrary();
-    v8RenderPartyLibrary();
-    v8SavedPartySelect.value = party.id;
+    v8RenderPartyLibrary(party.id);
+    if (v8SavedPartyName) v8SavedPartyName.value = party.name;
     setBuilderMessage(`「${party.name}」を上書き保存しました。`, false);
   }
 
@@ -5735,7 +5741,7 @@ scoreMove = function(attacker, defender, move) {
     const party = v8SavedParties.find(p => p.id === v8SavedPartySelect?.value);
     if (!party) return;
     builderSets = v8CloneSets(party.sets);
-    renderBuilder();
+    renderBuilder(); // also synchronizes the current draft to localStorage
     setBuilderMessage(`「${party.name}」を読み込みました。`, false);
   }
 
@@ -6604,6 +6610,11 @@ scoreMove = function(attacker, defender, move) {
   let v8SelectionView = "chooser";
 
   function v8OpenModeScreen() {
+    // Use the most recent builder state, not a previous saved-roster snapshot.
+    if (!validateBuilder()) {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(builderSets)); }
+      catch (error) { console.warn("選出前の編成保存に失敗しました", error); }
+    }
     // CPU vs CPUは現在の編成を使わずに両CPUが自動構築できるため、ここでは編成妥当性で入口を塞がない。
     // 「現在の編成」を実際に選んだ場合は、次画面へ進む時点でv8ValidateTeamが検証する。
     v8RenderBattleSourceOptions();
