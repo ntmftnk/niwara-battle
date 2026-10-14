@@ -1,4 +1,4 @@
-/* ニワラバトル v13.0.8 headless environment simulator core.
+/* ニワラバトル v13.0.9 headless environment simulator core.
    No DOM/localStorage access. Designed for Web Worker execution. */
 (function (root) {
     'use strict';
@@ -151,7 +151,7 @@
         p.hp = 32;
         p.speed = 2;
     } return p; }
-    function abilityFor(sp, rng, mode, rules, meta = null) { const score = x => (ABILITY_VALUE[x.id] || 0) + componentExperience(meta, sp.id, 'abilities', 'abilityWins', x.id, 55) + abilityCounterBonus(sp, x.id, meta, rules); const a = legalAbilities(sp, rules).sort((x, y) => score(y) - score(x)); if (!a.length)
+    function abilityFor(sp, rng, mode, rules, meta = null) { const score = x => (ABILITY_VALUE[x.id] || 0) + componentExperience(meta, sp.id, 'abilities', 'abilityWins', x.id, 55) + abilityCounterBonus(sp, x.id, meta, rules) + probeVariantScore(meta, sp.id, x.id); const a = legalAbilities(sp, rules).sort((x, y) => score(y) - score(x)); if (!a.length)
         return null; if (mode === 'uniform')
         return rng.pick(a); const temp = mode === 'mixed' ? 11 : 8; return weightedPick(rng, a, score, temp) || a[0]; }
     function expectedHits(m) { return CORE?.expectedHits ? CORE.expectedHits(m) : (!Array.isArray(m?.multiHit) ? 1 : (m.multiHit[0] === m.multiHit[1] ? m.multiHit[0] : (m.multiHit[0] === 2 && m.multiHit[1] === 5 ? 3 : (m.multiHit[0] + m.multiHit[1]) / 2))); }
@@ -195,6 +195,61 @@
     function bayesRate(wins, count, prior = 40, base = .5) { count = Math.max(0, Number(count) || 0); wins = Math.max(0, Number(wins) || 0); base = clamp(Number(base) || .5, .05, .95); return (wins + prior * base) / (count + prior); }
     function speciesExperience(meta, sid) { const x = meta?.species?.[sid]; if (!x || !(x.roster > 0))
         return 0; const rate = bayesRate(x.teamWins, x.roster, 80, .5), conf = x.roster / (x.roster + 180), explore = Math.sqrt(Math.log1p(Math.max(1, meta?.battles || 1)) / (x.roster + 6)) * 4; return clamp((rate - .5) * 78 * conf + explore, -18, 18); }
+    function probeEvidence(meta, category, id, prior = 24) {
+        const row = meta?.exploration?.[category]?.[id];
+        if (!row || !(row.games > 0)) return 0;
+        const games = Math.max(0, Number(row.games) || 0), wins = Math.max(0, Number(row.wins) || 0), draws = Math.max(0, Number(row.draws) || 0);
+        const winRate = (wins + draws * .5 + prior * .5) / (games + prior);
+        return clamp((winRate - .5) * 62 * games / (games + 24), -12, 12);
+    }
+    function probeSpeciesScore(meta, sid) { return probeEvidence(meta, 'species', sid); }
+    function probeVariantScore(meta, sid, ability) { return probeEvidence(meta, 'variants', `${sid}|${ability}`) * .55; }
+    function probeTeamScore(meta, team) {
+        // All pair data come from experiments with the candidate actually selected.
+        // Small bounded credit avoids replacing the original live-battle heuristics.
+        if (!meta?.exploration?.pairs) return 0;
+        let sum = 0, n = 0;
+        for (let i = 0; i < team.length; i++) for (let j = i + 1; j < team.length; j++) {
+            const k = [team[i].speciesId, team[j].speciesId].sort().join('|');
+            const v = probeEvidence(meta, 'pairs', k);
+            if (v) { sum += v; n++; }
+        }
+        return n ? clamp(sum / n * .7, -7, 7) : 0;
+    }
+    function emptyExploration() { return { battles: 0, wins: 0, losses: 0, draws: 0, species: {}, variants: {}, pairs: {} }; }
+    function mergeExploration(a, b) {
+        if (!b) return a;
+        for (const key of ['battles', 'wins', 'losses', 'draws']) a[key] = (a[key] || 0) + (b[key] || 0);
+        for (const category of ['species', 'variants', 'pairs']) {
+            a[category] = a[category] || {};
+            for (const [id, data] of Object.entries(b[category] || {})) {
+                const row = a[category][id] || (a[category][id] = { games: 0, wins: 0, losses: 0, draws: 0 });
+                for (const key of ['games', 'wins', 'losses', 'draws']) row[key] = (row[key] || 0) + (data[key] || 0);
+            }
+        }
+        return a;
+    }
+    function recordExploration(result, team, selectedSets, side, winner) {
+        const focus = team?._experimentalFocus;
+        if (!focus || !selectedSets.some(x => x.speciesId === focus.speciesId)) return;
+        const e = result.exploration || (result.exploration = emptyExploration());
+        e.battles++;
+        const outcome = winner === 'draw' ? 'draws' : winner === side ? 'wins' : 'losses';
+        e[outcome]++;
+        const record = (category, id) => {
+            const row = e[category][id] || (e[category][id] = { games: 0, wins: 0, losses: 0, draws: 0 });
+            row.games++; row[outcome]++;
+        };
+        record('species', focus.speciesId);
+        record('variants', `${focus.speciesId}|${focus.abilityId}`);
+        for (const set of selectedSets) if (set.speciesId !== focus.speciesId)
+            record('pairs', [focus.speciesId, set.speciesId].sort().join('|'));
+    }
+    function forceProbeSelection(selection, roster) {
+        const focus = roster?._experimentalFocus, index = focus && roster.findIndex(x => x.speciesId === focus.speciesId);
+        if (index >= 0 && selection?.length && !selection.includes(index)) selection[selection.length - 1] = index;
+        return selection;
+    }
     function selectedExperience(meta, sid) { const x = meta?.species?.[sid]; if (!x || !(x.selected > 0))
         return 0; const rate = bayesRate(x.selectedWins, x.selected, 60, .5), conf = x.selected / (x.selected + 140); return clamp((rate - .5) * 70 * conf, -18, 18); }
     function componentExperience(meta, sid, countKey, winKey, id, scale = 70) { const x = meta?.species?.[sid], counts = x?.[countKey], wins = x?.[winKey]; if (!x || !counts || !wins || wins[id] == null || !(counts[id] > 0))
@@ -569,7 +624,7 @@
         score += (t.pressure / total) * cover * .34 * COUNTER_RESPONSE_GAIN;
     } return score; }
     function weightedSpeciesSample(reps, count, rng, meta, rules) { const pool = [...reps], out = []; while (out.length < count && pool.length) {
-        const pick = weightedPick(rng, pool, sp => speciesExperience(meta, sp.id) * .55 + speciesCounterPotential(sp, meta, rules), 22) || rng.pick(pool), idx = pool.indexOf(pick);
+        const pick = weightedPick(rng, pool, sp => speciesExperience(meta, sp.id) * .55 + speciesCounterPotential(sp, meta, rules) + probeSpeciesScore(meta, sp.id), 22) || rng.pick(pool), idx = pool.indexOf(pick);
         out.push(pick);
         pool.splice(idx, 1);
     } return out; }
@@ -579,14 +634,14 @@
         spec += r.spec ? 1 : 0;
         fast += r.fast ? 1 : 0;
         bulky += r.bulky ? 1 : 0;
-        score += (ABILITY_VALUE[set.abilityId] || 0) * .55 + (meta ? speciesExperience(meta, set.speciesId) * .55 + componentExperience(meta, set.speciesId, 'abilities', 'abilityWins', set.abilityId, 65) * .55 : 0);
+        score += (ABILITY_VALUE[set.abilityId] || 0) * .55 + (meta ? speciesExperience(meta, set.speciesId) * .55 + componentExperience(meta, set.speciesId, 'abilities', 'abilityWins', set.abilityId, 65) * .55 + probeSpeciesScore(meta, set.speciesId) * .65 : 0);
         for (const id of set.moves) {
             const m = MOVE_DEX[id];
             if (m?.category !== 'status')
                 types.add(m.type);
         }
     } score += types.size * 2.2 + (phys && spec ? 12 : -10) + (fast >= 2 ? 8 : -5) + (bulky ? 4 : -8) - weaknessPenalty(team); if (meta && rules)
-        score += metaPressureScore(team, meta, rules); return score; }
+        score += metaPressureScore(team, meta, rules) + probeTeamScore(meta, team); return score; }
     function buildTeam(rng, difficulty = 'very-strong', buildMode = 'auto', rules, meta = null) {
         const reps = assertRules(rules), mode = buildMode === 'uniform' ? 'uniform' : buildMode === 'mixed' ? 'mixed' : (difficulty === 'normal' ? 'mixed' : 'strong');
         if (mode === 'uniform') {
@@ -610,6 +665,32 @@
         if (!best)
             throw new Error('研究条件では6匹の構築を生成できません。持ち物・技・特性条件を確認してください。');
         return best;
+    }
+    function buildExperimentalTeam(rng, difficulty, mode, rules, meta) {
+        // The challenger fights the regular metagame in a separate, unreported probe.
+        const base = buildTeam(rng, difficulty, mode, rules, meta);
+        const reps = buildableSpecies(rules).filter(sp => !base.some(s => s.speciesId === sp.id));
+        if (!reps.length) return base;
+        const candidate = weightedPick(rng, reps, sp => {
+            const all = meta?.species?.[sp.id]?.roster || 0;
+            const adoption = meta?.battles > 0 ? clamp(all / (2 * meta.battles), 0, 1) : 0;
+            const tested = meta?.exploration?.species?.[sp.id]?.games || 0;
+            const uncertainty = 12 / Math.sqrt(1 + tested / 9);
+            return speciesCounterPotential(sp, meta, rules) * .60
+                + speciesExperience(meta, sp.id) * .30
+                + probeSpeciesScore(meta, sp.id)
+                + (1 - adoption) * 10 + uncertainty;
+        }, 14) || rng.pick(reps);
+        if (!candidate) return base;
+        const pos = rng.int(base.length), used = new Set(base.filter((_, i) => i !== pos).map(s => s.itemId).filter(id => id && id !== 'none'));
+        const set = buildSet(candidate, used, rng, mode === 'uniform' ? 'mixed' : mode, rules, meta);
+        if (!set) return base;
+        base[pos] = set;
+        base._experimentalFocus = { speciesId: set.speciesId, abilityId: set.abilityId };
+        return base;
+    }
+    function teamForBattle(rng, difficulty, mode, rules, meta, probe) {
+        return probe ? buildExperimentalTeam(rng, difficulty, mode, rules, meta) : buildTeam(rng, difficulty, mode, rules, meta);
     }
     function calcPokemonStats(sp, set, formKey = null) { const p = set.statPoints || {}, form = formKey ? sp.forms?.[formKey] : null, b = form?.baseStats || sp.baseStats; return { maxHP: hpValue(b.hp, p.hp), attack: statValue(b.attack, p.attack, set.nature, 'attack'), defense: statValue(b.defense, p.defense, set.nature, 'defense'), specialAttack: statValue(b.specialAttack, p.specialAttack, set.nature, 'specialAttack'), specialDefense: statValue(b.specialDefense, p.specialDefense, set.nature, 'specialDefense'), speed: statValue(b.speed, p.speed, set.nature, 'speed'), weight: form?.weight ?? sp.weight ?? 0 }; }
     function makePokemon(set, side) { const sp = SPECIES_DEX[set.speciesId], ability = sp.abilities.find(a => a.id === set.abilityId) || sp.abilities[0], formKey = (sp.formSystem === 'halloween' && ability.id === 'halloween-punk' ? (set.itemId === 'mystery-candy' && sp.forms?.trick ? 'trick' : (sp.forms?.treat ? 'treat' : null)) : startingFormKey(sp, ability.id)), st = calcPokemonStats(sp, set, formKey), maxHP = st.maxHP, weight = ability.id === 'light-metal' ? st.weight / 2 : st.weight; return { id: sp.id, name: formKey && sp.forms?.[formKey]?.name || sp.name, baseName: sp.name, types: [...(sp.forms?.[formKey]?.types || sp.types)], baseTypes: [...sp.types], weight, formKey, side, set, ability, item: ITEM_DEX[set.itemId] || ITEM_DEX.none, itemConsumed: false, maxHP, hp: maxHP, attack: st.attack, defense: st.defense, specialAttack: st.specialAttack, specialDefense: st.specialDefense, speed: st.speed, status: null, statusTurns: 0, toxicCounter: 0, stages: DEFAULT_STAGES(), moves: set.moves.map(id => ({ ...MOVE_DEX[id], pp: MOVE_DEX[id].maxPP })), recharge: false, charging: null, protect: false, protectChain: 0, protectContactParalyze: false, endure: false, redirect: false, helpingHand: false, seeded: false, seedSourceSide: null, trappedTurns: 0, destinyBond: false, imprison: false, raisedThisTurn: false, iceRestoreTypes: null, substituteHP: 0, cursed: false, smackDown: false, furyCutterCount: 0, rolloutCount: 0, lastMoveId: null, choiceLock: null, turnsActive: 0, koCount: 0, lastDamageAmount: 0, lastDamageCategory: null, lastDamageFromSide: null, lastMoveFailed: false, previousMoveFailed: false, rampageMoveId: null, rampageTurns: 0, confusedTurns: 0, tauntTurns: 0, encoreTurns: 0, encoreMoveId: null, disableTurns: 0, disableMoveId: null, yawnTurns: 0, sameMoveCount: 0, lastConsecutiveMoveId: null, recoveryBlockTurns: 0, magnetRiseTurns: 0, aquaRing: false, ingrain: false, stockpileCount: 0, focusEnergy: 0, _trickBuilderUsed: false }; }
@@ -1955,13 +2036,15 @@
                     ss.moveSetWins[mid] = (ss.moveSetWins[mid] || 0) + 1;
             }
     }
-    function emptyBatchStats() { return { format: 'single', battles: 0, wins: { A: 0, B: 0, draw: 0 }, turns: 0, switches: 0, species: {}, moves: {}, abilities: {}, items: {}, spreads: {}, matchups: {}, encounters: {}, archetypeEncounters: {}, selectedCounterResults: {} }; }
+    function emptyBatchStats() { return { format: 'single', battles: 0, wins: { A: 0, B: 0, draw: 0 }, turns: 0, switches: 0, species: {}, moves: {}, abilities: {}, items: {}, spreads: {}, matchups: {}, encounters: {}, archetypeEncounters: {}, selectedCounterResults: {}, exploration: emptyExploration() }; }
     function addNumMap(a, b) { for (const [k, v] of Object.entries(b || {}))
         a[k] = (a[k] || 0) + v; }
     function mergeStats(a, b) {
         if (!b)
             return a;
         a.selectedCounterResults = a.selectedCounterResults || {};
+        a.exploration = a.exploration || emptyExploration();
+        mergeExploration(a.exploration, b.exploration);
         a.format = b.format || a.format;
         a.battles += b.battles || 0;
         a.turns += b.turns || 0;
@@ -2029,8 +2112,8 @@
         const rng = makeRng(seedHash(config.seed || 'niwara', index)), rules = compileRules(config);
         const diffA = config.difficultyA || 'very-strong', diffB = config.difficultyB || 'very-strong';
         const buildMode = config.buildMode || 'auto';
-        const meta = config.__metaSnapshot || config.metaSnapshot || null, rosterA = buildTeam(rng, diffA, buildMode, rules, meta), rosterB = buildTeam(rng, diffB, buildMode, rules, meta);
-        const selA = selectThree(rosterA, rosterB, diffA, rng, rules, meta), selB = selectThree(rosterB, rosterA, diffB, rng, rules, meta);
+        const meta = config.__metaSnapshot || config.metaSnapshot || null, rosterA = teamForBattle(rng, diffA, buildMode, rules, meta, config.__probeSide === 'A'), rosterB = teamForBattle(rng, diffB, buildMode, rules, meta, config.__probeSide === 'B');
+        const selA = forceProbeSelection(selectThree(rosterA, rosterB, diffA, rng, rules, meta), rosterA), selB = forceProbeSelection(selectThree(rosterB, rosterA, diffB, rng, rules, meta), rosterB);
         const A = initSide('A', rosterA, selA, diffA), B = initSide('B', rosterB, selB, diffB);
         const result = emptyBatchStats();
         result.format = 'single';
@@ -2146,6 +2229,8 @@
                     r.games++;
                 }
         recordSelectedCounterResults(result, selA.map(i => rosterA[i]), selB.map(i => rosterB[i]), winner);
+        if (config.__probeSide === 'A') recordExploration(result, rosterA, selA.map(i => rosterA[i]), 'A', winner);
+        if (config.__probeSide === 'B') recordExploration(result, rosterB, selB.map(i => rosterB[i]), 'B', winner);
         for (const a of selA.map(i => rosterA[i]))
             for (const b of selB.map(i => rosterB[i])) {
                 const sa = result.species[a.speciesId] || (result.species[a.speciesId] = newSpeciesStats()), sb = result.species[b.speciesId] || (result.species[b.speciesId] = newSpeciesStats()), ma = sa.matchups[b.speciesId] || (sa.matchups[b.speciesId] = { games: 0, wins: 0, losses: 0, kos: 0, deaths: 0 }), mb = sb.matchups[a.speciesId] || (sb.matchups[a.speciesId] = { games: 0, wins: 0, losses: 0, kos: 0, deaths: 0 });
@@ -3132,20 +3217,20 @@
         let rostersA = [], rostersB = [], selsA = [], selsB = [];
         if (format === 'tag') {
             for (let g = 0; g < 2; g++) {
-                rostersA.push(buildTeam(rng, diffA, buildMode, rules, config.__metaSnapshot || config.metaSnapshot || null));
-                rostersB.push(buildTeam(rng, diffB, buildMode, rules, config.__metaSnapshot || config.metaSnapshot || null));
+                rostersA.push(teamForBattle(rng, diffA, buildMode, rules, config.__metaSnapshot || config.metaSnapshot || null, config.__probeSide === 'A' && (format !== 'tag' || g === 0)));
+                rostersB.push(teamForBattle(rng, diffB, buildMode, rules, config.__metaSnapshot || config.metaSnapshot || null, config.__probeSide === 'B' && (format !== 'tag' || g === 0)));
             }
             const oppA = rostersB.flat(), oppB = rostersA.flat();
             for (let g = 0; g < 2; g++) {
-                selsA.push(fmSelectN(rostersA[g], oppA, 3, diffA, rng, rules, config.__metaSnapshot || config.metaSnapshot || null));
-                selsB.push(fmSelectN(rostersB[g], oppB, 3, diffB, rng, rules, config.__metaSnapshot || config.metaSnapshot || null));
+                selsA.push(forceProbeSelection(fmSelectN(rostersA[g], oppA, 3, diffA, rng, rules, config.__metaSnapshot || config.metaSnapshot || null), rostersA[g]));
+                selsB.push(forceProbeSelection(fmSelectN(rostersB[g], oppB, 3, diffB, rng, rules, config.__metaSnapshot || config.metaSnapshot || null), rostersB[g]));
             }
         }
         else {
-            rostersA = [buildTeam(rng, diffA, buildMode, rules, config.__metaSnapshot || config.metaSnapshot || null)];
-            rostersB = [buildTeam(rng, diffB, buildMode, rules, config.__metaSnapshot || config.metaSnapshot || null)];
-            selsA = [fmSelectN(rostersA[0], rostersB[0], fd.select, diffA, rng, rules, config.__metaSnapshot || config.metaSnapshot || null)];
-            selsB = [fmSelectN(rostersB[0], rostersA[0], fd.select, diffB, rng, rules, config.__metaSnapshot || config.metaSnapshot || null)];
+            rostersA = [teamForBattle(rng, diffA, buildMode, rules, config.__metaSnapshot || config.metaSnapshot || null, config.__probeSide === 'A')];
+            rostersB = [teamForBattle(rng, diffB, buildMode, rules, config.__metaSnapshot || config.metaSnapshot || null, config.__probeSide === 'B')];
+            selsA = [forceProbeSelection(fmSelectN(rostersA[0], rostersB[0], fd.select, diffA, rng, rules, config.__metaSnapshot || config.metaSnapshot || null), rostersA[0])];
+            selsB = [forceProbeSelection(fmSelectN(rostersB[0], rostersA[0], fd.select, diffB, rng, rules, config.__metaSnapshot || config.metaSnapshot || null), rostersB[0])];
         }
         const A = fmSide('A', rostersA, selsA, diffA, fd.active), B = fmSide('B', rostersB, selsB, diffB, fd.active), result = emptyBatchStats();
         result.format = format;
@@ -3244,9 +3329,11 @@
         const selectedA = selsA.flatMap((sel, g) => sel.map(i => rostersA[g][i])), selectedB = selsB.flatMap((sel, g) => sel.map(i => rostersB[g][i]));
         fmCollectMatchups(result, selectedA, selectedB, winner);
         recordSelectedCounterResults(result, selectedA, selectedB, winner);
+        if (config.__probeSide === 'A') recordExploration(result, rostersA[0], selsA[0].map(i => rostersA[0][i]), 'A', winner);
+        if (config.__probeSide === 'B') recordExploration(result, rostersB[0], selsB[0].map(i => rostersB[0][i]), 'B', winner);
         return result;
     }
-    function mergeMetaSnapshot(meta, result) { meta = meta || { format: result?.format || 'single', species: {}, battles: 0, encounters: {}, archetypeEncounters: {}, selectedCounterResults: {} }; meta.format = meta.format || result?.format || 'single'; meta.species = meta.species || {}; meta.encounters = meta.encounters || {}; meta.archetypeEncounters = meta.archetypeEncounters || {}; meta.selectedCounterResults = meta.selectedCounterResults || {}; meta.battles = (meta.battles || 0) + (result.battles || 0); for (const [id, s] of Object.entries(result.species || {})) {
+    function mergeMetaSnapshot(meta, result) { meta = meta || { format: result?.format || 'single', species: {}, battles: 0, encounters: {}, archetypeEncounters: {}, selectedCounterResults: {} }; meta.format = meta.format || result?.format || 'single'; meta.species = meta.species || {}; meta.encounters = meta.encounters || {}; meta.archetypeEncounters = meta.archetypeEncounters || {}; meta.selectedCounterResults = meta.selectedCounterResults || {}; meta.exploration = meta.exploration || emptyExploration(); mergeExploration(meta.exploration, result.exploration); meta.battles = (meta.battles || 0) + (result.battles || 0); for (const [id, s] of Object.entries(result.species || {})) {
         const x = meta.species[id] || (meta.species[id] = { roster: 0, teamWins: 0, selected: 0, selectedWins: 0, moveSets: {}, moveSetWins: {}, abilities: {}, abilityWins: {}, items: {}, itemWins: {}, natures: {}, natureWins: {}, pointSpreads: {}, pointSpreadWins: {}, spreads: {}, spreadWins: {}, matchups: {} });
         for (const k of ['roster', 'teamWins', 'selected', 'selectedWins'])
             x[k] = (x[k] || 0) + (s[k] || 0);
@@ -3271,7 +3358,7 @@
         for (const f of ['games', 'wins', 'losses', 'draws'])
             q[f] = (q[f] || 0) + (v[f] || 0);
     } return meta; }
-    function cloneMetaSnapshot(src) { const out = { format: src?.format || 'single', species: {}, battles: Number(src?.battles || 0), encounters: { ...src?.encounters }, archetypeEncounters: { ...src?.archetypeEncounters }, selectedCounterResults: { ...src?.selectedCounterResults } }; for (const [id, x] of Object.entries(src?.species || {})) {
+    function cloneMetaSnapshot(src) { const out = { format: src?.format || 'single', species: {}, battles: Number(src?.battles || 0), encounters: { ...src?.encounters }, archetypeEncounters: { ...src?.archetypeEncounters }, selectedCounterResults: { ...src?.selectedCounterResults }, exploration: deepClone(src?.exploration || emptyExploration()) }; for (const [id, x] of Object.entries(src?.species || {})) {
         const y = out.species[id] = { roster: Number(x.roster || 0), teamWins: Number(x.teamWins || 0), selected: Number(x.selected || 0), selectedWins: Number(x.selectedWins || 0), moveSets: { ...x.moveSets }, moveSetWins: { ...x.moveSetWins }, abilities: { ...x.abilities }, abilityWins: { ...x.abilityWins }, items: { ...x.items }, itemWins: { ...x.itemWins }, natures: { ...x.natures }, natureWins: { ...x.natureWins }, pointSpreads: { ...x.pointSpreads }, pointSpreadWins: { ...x.pointSpreadWins }, spreads: { ...x.spreads }, spreadWins: { ...x.spreadWins }, matchups: {} };
         for (const [oid, m] of Object.entries(x.matchups || {}))
             y.matchups[oid] = { games: Number(m.games || 0), wins: Number(m.wins || 0), losses: Number(m.losses || 0) };
@@ -3285,6 +3372,14 @@
         mergeStats(total, result);
         if (!config.metaFrozen)
             mergeMetaSnapshot(local.__metaSnapshot, result);
+        // Each 20th published match sponsors one independent exploratory match.
+        // Exploratory teams NEVER enter official usage, win rates, or encounter counts.
+        const cadence = Number(config.explorationEvery || 0);
+        if (config.metaFrozen && config.buildMode !== 'uniform' && cadence >= 1 && ((start + i + 1) % cadence === 0)) {
+            const side = (Math.floor((start + i) / cadence) % 2) ? 'B' : 'A';
+            const trial = simulateFormatBattle({ ...local, __probeSide: side }, `exploration-${start + i}`);
+            mergeExploration(total.exploration, trial.exploration);
+        }
     } return total; }
     root.NiwaraSimCore = Object.freeze({ version: root.NIWARA_APP?.version || 'dev', simulateBattle: simulateFormatBattle, simulateRange, emptyStats: emptyBatchStats, mergeStats, seedHash, validateConfig(config = {}) { const rules = compileRules(config); return { buildableSpecies: assertRules(rules).map(x => x.id), rules: { species: [...rules.species], moves: [...rules.moves], abilities: [...rules.abilities], items: [...rules.items] } }; } });
 })(globalThis);

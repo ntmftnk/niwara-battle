@@ -3,7 +3,7 @@
  * v13 runtime source of truth is ./js/app-config.js.
  */
 globalThis.NIWARA_APP = Object.freeze({
-  version: "13.0.8",
+  version: "13.0.9",
   partyLibraryKey: "niwaraBattlePartyLibraryV8",
   teamStorageKey: "niwaraBattleTeamV5"
 });
