@@ -262,7 +262,7 @@
           <span id="research-progress-meta"></span>
           <span id="research-status" class="research-status">待機中</span>
         </div>
-        <p class="research-note">シミュレーションはアプリを開いている間だけ進みます。途中結果はIndexedDBへ保存されるため、停止・再開できます。画面を閉じても完了済み集計は残ります。高速研究コアは大量試行向けで、通常対戦と同じデータ・能力値・タイプ相性・主要な技/持ち物/場効果を使用します。強いCPUでは蓄積済みの使用率・勝率を次の計算バッチへ反映し、上位ポケモンへの対策を持つ構築を評価する適応メタ方式です。極端に特殊な専用効果は簡略化される場合があります。</p>
+        <p class="research-note">シミュレーションはアプリを開いている間だけ進みます。途中結果はIndexedDBへ保存されるため、停止・再開できます。画面を閉じても完了済み集計は残ります。高速研究コアは大量試行向けで、通常対戦と同じデータ・能力値・タイプ相性・主要な技/特性/持ち物/場効果を使用します。強いCPUでは研究を世代に区切り、前世代の使用率・勝率・主要な型（種族＋特性＋主要技）・直接対面実績を固定して、次世代で対策構築を探索します。環境推移は累積平均ではなく区間ごとの使用率・勝率を保存します。極端に特殊な専用効果は簡略化される場合があります。</p>
       </section>
 
       <div id="research-summary" class="research-kpi-grid"></div>
@@ -287,7 +287,7 @@
         <summary>環境推移（研究中のスナップショット）</summary>
         <p class="research-note">一定試合数ごとに上位使用率・勝率を保存します。メタが収束しているか、対策側が増えているかを確認できます。</p>
         <div id="research-trend-summary" class="research-trend-summary"></div>
-        <div class="research-table-scroll"><table><thead><tr><th>試合数</th><th>使用率1位</th><th>2位</th><th>3位</th><th>上位3種占有率</th></tr></thead><tbody id="research-trend-body"></tbody></table></div>
+        <div class="research-table-scroll"><table><thead><tr><th>区間</th><th>使用率1位</th><th>2位</th><th>3位</th><th>上位3種 合計採用率</th></tr></thead><tbody id="research-trend-body"></tbody></table></div>
       </details>
 
       <section class="research-history-panel">
