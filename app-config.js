@@ -1,9 +1,6 @@
-/* v13 migration compatibility probe.
- * Old v12 PWA clients request ./app-config.js when checking for updates.
- * v13 runtime source of truth is ./js/app-config.js.
- */
+/* ニワラバトル v13 - single source of truth for version and persistent keys. */
 globalThis.NIWARA_APP = Object.freeze({
-  version: "13.0.3",
+  version: "13.0.4",
   partyLibraryKey: "niwaraBattlePartyLibraryV8",
   teamStorageKey: "niwaraBattleTeamV5"
 });

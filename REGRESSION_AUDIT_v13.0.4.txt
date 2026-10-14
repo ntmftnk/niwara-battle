@@ -1,0 +1,18 @@
+ニワラバトル v13.0.4 変更検証（2026-10-14）
+====================================================
+[OK] node --check: 上書き対象JSおよび全ランタイムJS
+[OK] シングル: 非保存の編成変更 -> 「現在の編成」の選出に反映
+[OK] 「チームA」「チームB」の新規保存 -> UI選択IDと名前の一致
+[OK] 「チームB」上書き -> 「チームA」を変更せず、指定保存先だけ更新
+[OK] ダブル: 上書き保存した名前付きパーティーを選出に反映
+[OK] ブラウザDOM実行時JavaScript例外 0
+[OK] 5形式各5戦の環境研究スモーク (single/double/triple/full6/tag)
+[OK] 5形式すべて完走、記録された技が種族のmovePool内、NaN/Infinityなし
+[OK] 実シミュレーター12戦の統計から全24登場種の区間記録を出力
+[OK] CSVに snapshot_species/技/特性/持ち物/対面/型対面/spread を出力
+[OK] JSON snapshots[].stats に生の区間統計を保存
+[OK] v13.0.3形式の旧snapshotは snapshot_top_legacy でCSV出力
+
+未検証:
+- 10万/100万戦規模の実時間性能とブラウザごとの容量限界
+- 本番GitHub PagesのService Worker更新挙動
