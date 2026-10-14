@@ -262,7 +262,7 @@
           <span id="research-progress-meta"></span>
           <span id="research-status" class="research-status">待機中</span>
         </div>
-        <p class="research-note">シミュレーションはアプリを開いている間だけ進みます。途中結果はIndexedDBへ保存されるため、停止・再開できます。画面を閉じても完了済み集計は残ります。高速研究コアは大量試行向けで、通常対戦と同じデータ・能力値・タイプ相性・主要な技/特性/持ち物/場効果を使用します。強いCPUでは研究を世代に区切り、前世代の使用率・勝率・主要な型（種族＋特性＋主要技）・直接対面実績を固定して、次世代で対策構築を探索します。環境推移は累積平均ではなく区間ごとの全種族・技・特性・持ち物・直接対面を区間統計として保存し、CSV/JSON出力にも含めます（v13.0.3以前の履歴は保存済み範囲のみ）。極端に特殊な専用効果は簡略化される場合があります。</p>
+        <p class="research-note">シミュレーションはアプリを開いている間だけ進みます。途中結果はIndexedDBへ保存されるため、停止・再開できます。画面を閉じても完了済み集計は残ります。高速研究コアは大量試行向けで、通常対戦と同じデータ・能力値・タイプ相性・主要な技/特性/持ち物/場効果を使用します。強いCPUでは研究を世代に区切り、直近世代45%を最重視する指数移動平均で、過去世代の採用率・勝率・技・特性・持ち物・性格・基礎ポイント・直接対面実績を引き継ぎ、次世代で対策構築を探索します。環境推移は累積平均ではなく区間ごとの全種族・技・特性・持ち物・直接対面を区間統計として保存し、CSV/JSON出力にも含めます（v13.0.3以前の履歴は保存済み範囲のみ）。極端に特殊な専用効果は簡略化される場合があります。</p>
       </section>
 
       <div id="research-summary" class="research-kpi-grid"></div>
@@ -270,11 +270,11 @@
       <details class="research-table-panel" open><summary>ポケモン使用率・選出率・勝率</summary>
         <div class="research-table-scroll"><table><thead><tr><th>ポケモン</th><th>構築採用率</th><th>選出率</th><th>先発率</th><th>選出時勝率</th><th>KO</th><th>被KO</th></tr></thead><tbody id="research-species-body"></tbody></table></div>
       </details>
-      <div class="notice research-per-species-note">技・特性・持ち物の使用率は、下の「ポケモン別：技・特性・持ち物」でポケモンごとに表示します。</div>
-      <details class="research-table-panel"><summary>よく使われる性格・能力P</summary>
-        <div class="research-table-scroll"><table><thead><tr><th>ポケモン</th><th>性格</th><th>能力P H/A/B/C/D/S</th><th>採用数</th></tr></thead><tbody id="research-spreads-body"></tbody></table></div>
+      <div class="notice research-per-species-note">技・特性・持ち物・性格・基礎ポイントは、下の「ポケモン別詳細」で種族ごとに表示します。</div>
+      <details class="research-table-panel"><summary>選択したポケモンの性格・基礎ポイント</summary>
+        <div class="research-table-scroll"><table><thead><tr><th>ポケモン</th><th>性格</th><th>能力P H/A/B/C/D/S</th><th>採用数</th><th>採用率</th><th>構築勝利数</th><th>構築勝率</th></tr></thead><tbody id="research-spreads-body"></tbody></table></div>
       </details>
-      <details class="research-table-panel" open><summary>ポケモン別：技・特性・持ち物</summary>
+      <details class="research-table-panel" open><summary>ポケモン別：技・特性・持ち物・性格・基礎ポイント</summary>
         <div class="research-species-detail-toolbar"><label>ポケモン<select id="research-species-detail-select"></select></label><span id="research-species-detail-note" class="view-note"></span></div>
         <div id="research-species-detail" class="research-species-detail"></div>
       </details>
