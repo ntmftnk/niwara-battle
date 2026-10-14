@@ -1311,6 +1311,7 @@ function getEffectiveMove(attacker, move) {
 
 function getTypeEffectivenessV5(attacker, defender, move) {
   const effectiveMove = getEffectiveMove(attacker, move);
+  if (effectiveMove.struggle) return 1;
   let multiplier = 1;
   defender.types.forEach(type => {
     let part = TYPE_CHART[effectiveMove.type]?.[type];
@@ -2396,7 +2397,7 @@ const V6_RESIST_BERRIES = {
 };
 
 function v6CanTriggerResistBerry(defender, move, effectiveness) {
-  if (!v6ItemIsActive(defender) || !move || move.category === "status") return false;
+  if (!v6ItemIsActive(defender) || !move || move.category === "status" || move.struggle) return false;
   const berryType = V6_RESIST_BERRIES[defender.item.id];
   if (!berryType || berryType !== move.type) return false;
   if (defender.item.id === "chilan-berry") return effectiveness > 0;
@@ -2849,6 +2850,7 @@ function v6DynamicPower(attacker, defender, move) {
 const V52_getTypeEffectivenessV5 = getTypeEffectivenessV5;
 getTypeEffectivenessV5 = function(attacker, defender, move) {
   const effectiveMove = getEffectiveMove(attacker, move);
+  if (effectiveMove.struggle) return 1;
   let multiplier = 1;
   defender.types.forEach(type => {
     let part = TYPE_CHART[effectiveMove.type]?.[type];
